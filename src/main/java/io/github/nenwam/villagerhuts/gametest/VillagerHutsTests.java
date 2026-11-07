@@ -255,10 +255,15 @@ public final class VillagerHutsTests {
                 .thenSucceed();
     }
 
-    /** Zombies go after workers like they go after villagers. */
+    /**
+     * Zombies go after workers like they go after villagers. Like villagers, a worker must be in sight
+     * to be noticed, so the zombie starts inside the hut (the worker stays in there; the door is shut).
+     * The helmet stops it burning in the daylight the tests run in.
+     */
     private static void zombiesHuntWorkers(GameTestHelper helper) {
         WorkerEntity worker = buildFarmerHut(helper, null);
-        Zombie zombie = helper.spawn(EntityTypes.ZOMBIE, new BlockPos(1, 1, 1));
+        Zombie zombie = helper.spawn(EntityTypes.ZOMBIE, new BlockPos(7, 1, 17)); // floor by the hut's back wall
+        zombie.setItemSlot(EquipmentSlot.HEAD, new ItemStack(Items.LEATHER_HELMET));
         helper.succeedWhen(() -> helper.assertTrue(zombie.getTarget() == worker, "zombie's target is " + zombie.getTarget()));
     }
 
