@@ -4,6 +4,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.EnumSet;
 import java.util.List;
+import java.util.function.Predicate;
 
 import io.github.nenwam.villagerhuts.entity.WorkerEntity;
 import io.github.nenwam.villagerhuts.registry.ModTags;
@@ -12,17 +13,16 @@ import net.minecraft.core.Direction;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.Container;
 import net.minecraft.world.entity.ai.goal.Goal;
+import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.block.entity.HopperBlockEntity;
-import net.minecraft.world.level.levelgen.structure.BoundingBox;
 import net.minecraft.world.level.pathfinder.Path;
 import net.minecraft.world.phys.Vec3;
 import org.jspecify.annotations.Nullable;
 
 /**
- * A trip to a storage block (chest or barrel by default) in the worker's hut: picks the nearest
- * useful one, walks to a floor spot right beside it (so always on the same side of any wall),
- * and uses it once it can reach it with nothing in between. Subclasses decide when a trip is
- * needed and what to do there (store the harvest, fetch seeds, ...).
+ * A trip to the worker's assigned chest (or barrel): walks to a floor spot right beside it (so always
+ * on the same side of any wall), and uses it once it can reach it with nothing in between. Subclasses
+ * decide when a trip is needed and what to do there (store the harvest, fetch seeds, ...).
  */
 abstract class StorageTripGoal extends Goal implements DescribesActivity {
     private static final int GIVE_UP_TICKS = 300;
@@ -56,8 +56,7 @@ abstract class StorageTripGoal extends Goal implements DescribesActivity {
 
     @Override
     public final boolean canUse() {
-        if (this.worker.getHutBounds() == null || this.worker.tickCount < this.nextTryTick
-                || !WorkReach.canPlan(this.worker) || !this.needsTrip()) {
+        if (this.worker.tickCount < this.nextTryTick || !WorkReach.canPlan(this.worker) || !this.needsTrip()) {
             return false;
         }
         this.nextTryTick = this.worker.tickCount + this.retryTicks();
@@ -115,54 +114,75 @@ abstract class StorageTripGoal extends Goal implements DescribesActivity {
         this.storage = null;
     }
 
-    /** Picks the nearest useful storage block with a reachable spot beside it. Returns false if there's none. */
-    private boolean planTrip() {
-        ServerLevel level = (ServerLevel) this.worker.level();
-        BoundingBox hut = this.worker.getHutBounds();
-        if (hut == null) {
-            return false;
-        }
-        List<BlockPos> storages = new ArrayList<>();
-        boolean anyStorage = false;
-        for (BlockPos pos : BlockPos.betweenClosed(hut.minX(), hut.minY(), hut.minZ(), hut.maxX(), hut.maxY(), hut.maxZ())) {
-            if (level.isLoaded(pos) && level.getBlockState(pos).is(ModTags.WORKER_STORAGE)) {
-                Container container = HopperBlockEntity.getContainerAt(level, pos);
-                if (container != null) {
-                    anyStorage = true;
-                    if (this.isUseful(container)) {
-                        storages.add(pos.immutable());
-                    }
+    /**
+     * Moves up to `wanted` matching items from the container into the worker's pockets (stopping when they're full).
+     * Returns how many it took.
+     */
+    protected int take(Container container, Predicate<ItemStack> matches, int wanted) {
+        int taken = 0;
+        for (int i = 0; i < container.getContainerSize() && taken < wanted; i++) {
+            ItemStack stack = container.getItem(i);
+            if (!matches.test(stack)) {
+                continue;
+            }
+            ItemStack part = container.removeItem(i, Math.min(stack.getCount(), wanted - taken));
+            int partCount = part.getCount();
+            ItemStack rest = this.worker.getInventory().addItem(part);
+            taken += partCount - rest.getCount();
+            if (!rest.isEmpty()) { // pockets full: put the rest back and stop
+                ItemStack inSlot = container.getItem(i);
+                if (inSlot.isEmpty()) {
+                    container.setItem(i, rest);
+                } else {
+                    inSlot.grow(rest.getCount());
                 }
+                break;
             }
         }
-        if (!anyStorage) {
+        container.setChanged();
+        if (taken > 0) {
+            this.worker.markWorked(); // so it doesn't count as idle and put it straight back
+        }
+        return taken;
+    }
+
+    /** Plans a route to a reachable spot beside the assigned chest, if it's worth the trip. Returns false if not. */
+    private boolean planTrip() {
+        ServerLevel level = (ServerLevel) this.worker.level();
+        BlockPos storagePos = this.worker.getStoragePos();
+        if (storagePos != null && !level.isLoaded(storagePos)) {
+            return false; // try again later
+        }
+        Container container = storagePos != null && level.getBlockState(storagePos).is(ModTags.WORKER_STORAGE)
+                ? HopperBlockEntity.getContainerAt(level, storagePos) : null;
+        if (storagePos == null || container == null) { // never assigned, or broken since
             this.worker.setStorageState(WorkerEntity.StorageState.NONE);
             return false;
         }
-        storages.sort(Comparator.comparingDouble(pos -> pos.distToCenterSqr(this.worker.position())));
+        if (!this.isUseful(container)) {
+            this.worker.setStorageState(WorkerEntity.StorageState.OK);
+            return false;
+        }
 
-        for (BlockPos storagePos : storages) {
-            List<BlockPos> spots = new ArrayList<>();
-            for (Direction side : Direction.Plane.HORIZONTAL) {
-                BlockPos spot = storagePos.relative(side);
-                if (WorkReach.isStandable(level, spot)) {
-                    spots.add(spot);
-                }
-            }
-            spots.sort(Comparator.comparingDouble(spot -> spot.distToCenterSqr(this.worker.position())));
-            for (BlockPos spot : spots) {
-                Path route = WorkReach.exactPath(this.worker, spot);
-                if (route != null) {
-                    this.storage = storagePos;
-                    this.standAt = spot;
-                    this.path = route;
-                    this.worker.setStorageState(WorkerEntity.StorageState.OK);
-                    return true;
-                }
+        List<BlockPos> spots = new ArrayList<>();
+        for (Direction side : Direction.Plane.HORIZONTAL) {
+            BlockPos spot = storagePos.relative(side);
+            if (WorkReach.isStandable(level, spot)) {
+                spots.add(spot);
             }
         }
-        // Storage exists; if any of it was worth the trip but none could be reached, say so.
-        this.worker.setStorageState(storages.isEmpty() ? WorkerEntity.StorageState.OK : WorkerEntity.StorageState.UNREACHABLE);
+        spots.sort(Comparator.comparingDouble(spot -> spot.distToCenterSqr(this.worker.position())));
+        for (BlockPos spot : spots) {
+            Path route = WorkReach.exactPath(this.worker, spot);
+            if (route != null) {
+                this.storage = storagePos;
+                this.standAt = spot;
+                this.path = route;
+                this.worker.setStorageState(WorkerEntity.StorageState.OK);
+                return true;
+            }
+        }
+        this.worker.setStorageState(WorkerEntity.StorageState.UNREACHABLE);
         return false;
     }
 }

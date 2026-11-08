@@ -12,64 +12,35 @@ from pathlib import Path
 COLORS = {
     ".": (0, 0, 0, 0),          # transparent
     "K": (43, 29, 14, 255),     # outline
-    "R": (90, 59, 30, 255),     # roof
-    "r": (122, 82, 48, 255),    # roof edge
-    "L": (107, 79, 47, 255),    # log corners / stake
-    "W": (184, 148, 95, 255),   # planks
-    "w": (156, 122, 72, 255),   # planks shadow
-    "D": (74, 50, 24, 255),     # door
-    "G": (168, 216, 240, 255),  # window
-    "Y": (217, 177, 59, 255),   # wheat / flag
-    "y": (176, 138, 36, 255),   # flag shade
-    "g": (95, 158, 53, 255),    # stems / grass
+    "Y": (217, 177, 59, 255),   # straw hat
+    "y": (176, 138, 36, 255),   # straw shade
+    "b": (110, 70, 35, 255),    # hat band
+    "S": (189, 140, 110, 255),  # skin
+    "N": (160, 108, 84, 255),   # nose
+    "E": (40, 96, 52, 255),     # eyes
+    "B": (122, 86, 48, 255),    # robe
+    "g": (95, 158, 53, 255),    # wheat stem on the robe
 }
 
-HUT = [
-    "................",
-    ".......KK.......",
-    "......KrrK......",
-    ".....KrRRrK.....",
-    "....KrRRRRrK....",
-    "...KrRRRRRRrK...",
-    "..KrRRRRRRRRrK..",
-    ".KKKKKKKKKKKKKK.",
-    "..KLWWWWWWWWLK..",
-    "..KLWGGWWDDWLK..",
-    "..KLWGGWWDDWLK..",
-    "..KLWWWWWDDWLK..",
-    "..KLwwwwwDDwLK..",
-    ".KKKKKKKKKKKKKK.",
-]
-
 ICONS = {
-    # Hut with wheat in front: hut + farm.
-    "farmer_hut": HUT + [
-        ".Y.Y.Y....Y.Y.Y.",
-        ".g.g.g....g.g.g.",
-    ],
-    # Just the hut, on a strip of grass.
-    "worker_hut": HUT + [
-        "..gggggggggggg..",
+    # A villager farmer's head in a straw hat.
+    "farmer": [
         "................",
-    ],
-    # A wooden stake with a yellow pennant.
-    "work_area_marker": [
-        "................",
-        "....KKKKK.......",
-        "....KLYYYKK.....",
-        "....KLYYYYYKK...",
-        "....KLYYYYyyyK..",
-        "....KLYYyyKK....",
-        "....KLyyKK......",
-        "....KLKK........",
-        "....KLK.........",
-        "....KLK.........",
-        "....KLK.........",
-        "....KLK.........",
-        "....KLK.........",
-        ".....KLK........",
-        "......K.........",
-        "................",
+        ".....KKKKKK.....",
+        "....KYYYYYYK....",
+        "....KYyYYyYK....",
+        "..KKKbbbbbbKKK..",
+        ".KYYYYYYYYYYYYK.",
+        "..KKKKKKKKKKKK..",
+        "...KSSSSSSSSK...",
+        "...KSEESSEESK...",
+        "...KSSSNNSSSK...",
+        "...KSSSNNSSSK...",
+        "...KKSSNNSSKK...",
+        "..KBBKKKKKKBBK..",
+        ".KBBBBBBBBBgBBK.",
+        ".KBBBBBBBBgBBBK.",
+        ".KKKKKKKKKKKKKK.",
     ],
 }
 

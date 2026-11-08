@@ -7,7 +7,6 @@ import com.mojang.logging.LogUtils;
 import io.github.nenwam.villagerhuts.entity.WorkerEntity;
 import io.github.nenwam.villagerhuts.gametest.VillagerHutsTests;
 import io.github.nenwam.villagerhuts.registry.ModCreativeTabs;
-import io.github.nenwam.villagerhuts.registry.ModDataComponents;
 import io.github.nenwam.villagerhuts.registry.ModEntities;
 import io.github.nenwam.villagerhuts.registry.ModItems;
 import net.neoforged.bus.api.IEventBus;
@@ -24,7 +23,6 @@ public class VillagerHuts {
 
     // Runs first when the mod loads. NeoForge passes in the mod event bus and container.
     public VillagerHuts(IEventBus modEventBus, ModContainer modContainer) {
-        ModDataComponents.COMPONENTS.register(modEventBus);
         ModItems.ITEMS.register(modEventBus);
         ModEntities.ENTITY_TYPES.register(modEventBus);
         ModCreativeTabs.TABS.register(modEventBus);

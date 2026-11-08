@@ -1,17 +1,22 @@
 package io.github.nenwam.villagerhuts.entity;
 
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.function.Predicate;
 
 import com.mojang.serialization.Codec;
 
 import io.github.nenwam.villagerhuts.entity.goal.DepositItemsGoal;
 import io.github.nenwam.villagerhuts.entity.goal.DescribesActivity;
 import io.github.nenwam.villagerhuts.entity.goal.FarmerWorkGoal;
+import io.github.nenwam.villagerhuts.entity.goal.FetchBoneMealGoal;
 import io.github.nenwam.villagerhuts.entity.goal.FetchSeedsGoal;
 import io.github.nenwam.villagerhuts.entity.goal.FleeHostilesGoal;
+import io.github.nenwam.villagerhuts.entity.goal.FollowOrStayGoal;
 import io.github.nenwam.villagerhuts.entity.goal.ShelterAtNightGoal;
 import io.github.nenwam.villagerhuts.entity.goal.WorkReach;
 import io.github.nenwam.villagerhuts.job.WorkerJob;
@@ -27,10 +32,12 @@ import net.minecraft.network.syncher.EntityDataAccessor;
 import net.minecraft.network.syncher.EntityDataSerializers;
 import net.minecraft.network.syncher.SynchedEntityData;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.sounds.SoundEvent;
 import net.minecraft.sounds.SoundEvents;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.InteractionResult;
+import net.minecraft.world.Container;
 import net.minecraft.world.SimpleContainer;
 import net.minecraft.world.damagesource.DamageSource;
 import net.minecraft.world.entity.EntityType;
@@ -52,7 +59,9 @@ import net.minecraft.world.entity.npc.InventoryCarrier;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.BlockItem;
 import net.minecraft.world.level.block.CropBlock;
+import net.minecraft.world.level.block.entity.HopperBlockEntity;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
 import net.minecraft.resources.Identifier;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.levelgen.structure.BoundingBox;
@@ -61,13 +70,17 @@ import net.minecraft.world.level.storage.ValueOutput;
 import org.jspecify.annotations.Nullable;
 
 /**
- * A villager-like worker that belongs to a hut. It works during the day, shelters inside the hut
- * at night, and runs from hostile mobs.
+ * A villager-like worker, hired with a Farmer item. It works the farm it's assigned, takes seeds from
+ * and stores its harvest in the chest it's assigned, shelters indoors near that chest at night (if
+ * there's an inside near it), and runs from hostile mobs.
  *
- * Interactions (only the player who built the hut can do these):
- *  - Right-click with a job tool (e.g. a hoe): the worker takes it and starts that job.
- *  - Shift-right-click with an empty hand: take the tool back; the worker becomes unemployed.
- *  - Right-click with an empty hand: shows what the worker is doing.
+ * Interactions (only the player who hired it can do these):
+ *  - Right-click with an empty hand: select it, then right-click a farm or a chest to assign it
+ *    (see WorkerAssigning). Right-click it again to cancel.
+ *  - Shift + right-click with an empty hand: select it to make a new farm, then right-click the ground.
+ *  - Right-click with a job tool (e.g. a hoe) while unemployed: the worker takes it and starts that job.
+ * The worker panel can also give it orders (work, follow you, stay put) and take its tool back.
+ * A new worker follows the player who hired it until it's given a farm or chest.
  */
 public class WorkerEntity extends PathfinderMob implements InventoryCarrier {
     private static final EntityDataAccessor<String> DATA_JOB =
@@ -76,14 +89,21 @@ public class WorkerEntity extends PathfinderMob implements InventoryCarrier {
     private static final int IDLE_TICKS = 100;
     /** How far workers can plan a walk. Raised automatically for farms assigned far from the hut. */
     private static final double BASE_FOLLOW_RANGE = 48.0;
+    /** How far from its chest a worker looks for somewhere indoors to spend the night. */
+    private static final int SHELTER_SEARCH_RADIUS = 6;
+    private static final int SHELTER_RETRY_TICKS = 1200;
     private static final Codec<Map<Identifier, Integer>> COLLECTED_CODEC = Codec.unboundedMap(Identifier.CODEC, Codec.INT);
 
     private final SimpleContainer inventory = new SimpleContainer(9);
     private @Nullable UUID ownerId;
-    private @Nullable BoundingBox hutBounds;
+    private Order order = Order.WORK;
+    private @Nullable BlockPos stayPos;
     private @Nullable BoundingBox farmArea;
-    private @Nullable BlockPos shelterPos;
-    private boolean shelterSearched;
+    private boolean tillsLand; // a farm it made itself (see FarmPlan): it tills the land and puts the water in
+    private final List<BlockPos> plannedWater = new ArrayList<>();
+    private @Nullable BlockPos storagePos;
+    private @Nullable BlockPos shelterPos; // found near the chest when first needed, not saved
+    private int nextShelterSearchTick;
     private boolean sheltered;
     private int lastWorkTick = -IDLE_TICKS;
     private final Map<Identifier, Integer> collected = new LinkedHashMap<>();
@@ -91,11 +111,38 @@ public class WorkerEntity extends PathfinderMob implements InventoryCarrier {
     private int farmlandInArea = -1; // -1 = not checked yet
     private int emptyFarmland = -1;
     private int ripeCrops = -1;
+    private int growingCrops = -1;
+    private boolean farmWorkDone;
+    private boolean farmWorkStuck;
     private StorageState storageState = StorageState.OK;
     private boolean farmUnreachable;
 
-    /** What the last trip to the hut's storage found. */
+    /** What the last trip to its chest found. */
     public enum StorageState { OK, NONE, UNREACHABLE }
+
+    /** What it's been told to do, from the worker panel. */
+    public enum Order {
+        WORK("work"), FOLLOW("follow"), STAY("stay");
+
+        private final String id;
+
+        Order(String id) {
+            this.id = id;
+        }
+
+        public String id() {
+            return this.id;
+        }
+
+        public static Order byId(String id) {
+            for (Order order : values()) {
+                if (order.id.equals(id)) {
+                    return order;
+                }
+            }
+            return WORK;
+        }
+    }
 
     public WorkerEntity(EntityType<? extends WorkerEntity> type, Level level) {
         super(type, level);
@@ -123,33 +170,24 @@ public class WorkerEntity extends PathfinderMob implements InventoryCarrier {
         this.goalSelector.addGoal(1, new PanicGoal(this, 0.85));         // got hurt: run
         this.goalSelector.addGoal(2, new FleeHostilesGoal(this));        // monster nearby: run
         this.goalSelector.addGoal(3, new OpenDoorGoal(this, true));
-        this.goalSelector.addGoal(4, new ShelterAtNightGoal(this, 0.6)); // dark: go inside and stay
-        this.goalSelector.addGoal(5, new MoveTowardsRestrictionGoal(this, 0.6));
-        this.goalSelector.addGoal(6, new DepositItemsGoal(this, 0.6));
-        this.goalSelector.addGoal(7, new FetchSeedsGoal(this, 0.6));     // out of seeds: get some from the chest
-        this.goalSelector.addGoal(8, new FarmerWorkGoal(this, 0.6));
-        this.goalSelector.addGoal(9, new WaterAvoidingRandomStrollGoal(this, 0.6));
-        this.goalSelector.addGoal(10, new LookAtPlayerGoal(this, Player.class, 6.0F));
-        this.goalSelector.addGoal(11, new RandomLookAroundGoal(this));
+        this.goalSelector.addGoal(4, new FollowOrStayGoal(this, 0.7));    // told to follow or stay: nothing else moves it
+        this.goalSelector.addGoal(5, new ShelterAtNightGoal(this, 0.6)); // dark: go inside and stay
+        this.goalSelector.addGoal(6, new MoveTowardsRestrictionGoal(this, 0.6));
+        this.goalSelector.addGoal(7, new DepositItemsGoal(this, 0.6));
+        this.goalSelector.addGoal(8, new FetchSeedsGoal(this, 0.6));     // out of seeds: get some from the chest
+        this.goalSelector.addGoal(9, new FetchBoneMealGoal(this, 0.6));  // crops growing and bone meal in the chest
+        this.goalSelector.addGoal(10, new FarmerWorkGoal(this, 0.6));
+        this.goalSelector.addGoal(11, new WaterAvoidingRandomStrollGoal(this, 0.6));
+        this.goalSelector.addGoal(12, new LookAtPlayerGoal(this, Player.class, 6.0F));
+        this.goalSelector.addGoal(13, new RandomLookAroundGoal(this));
     }
 
-    // ------------------------------------------------------------------ hut
+    // ------------------------------------------------------------------ owner
 
-    /**
-     * Ties this worker to the hut that was just built for it.
-     * @param shelter where to stay at night (the hut's "worker" marker), or null to find a spot indoors
-     */
-    public void assignHut(BoundingBox bounds, @Nullable Player owner, @Nullable BlockPos shelter) {
-        this.hutBounds = bounds;
+    /** Ties a newly hired worker to the player who placed it. It follows them until it's given a farm or chest. */
+    public void hire(@Nullable Player owner) {
         this.ownerId = owner == null ? null : owner.getUUID();
-        this.shelterPos = shelter;
-        this.shelterSearched = shelter != null;
-        this.updateHomeArea();
-    }
-
-    /** The hut's area (including its own farm, for a Farmer Hut). Its storage chest is in here. */
-    public @Nullable BoundingBox getHutBounds() {
-        return this.hutBounds;
+        this.setOrder(Order.FOLLOW);
     }
 
     public @Nullable UUID getOwnerId() {
@@ -160,37 +198,129 @@ public class WorkerEntity extends PathfinderMob implements InventoryCarrier {
         return this.ownerId == null || this.ownerId.equals(player.getUUID());
     }
 
-    // ------------------------------------------------------------------ farm
-
-    /** Where the worker works: the farm assigned with a Work Area Marker, or else its hut's own grounds. */
-    public @Nullable BoundingBox getWorkArea() {
-        return this.farmArea != null ? this.farmArea : this.hutBounds;
+    /** The player who hired it, if they're in this world (dimension) right now. */
+    public @Nullable Player getOwner() {
+        return this.ownerId == null ? null : this.level().getPlayerByUUID(this.ownerId);
     }
 
+    // ------------------------------------------------------------------ orders
+
+    public Order getOrder() {
+        return this.order;
+    }
+
+    /** Work (its farm and chest), follow its owner, or stay where it is now. */
+    public void setOrder(Order order) {
+        this.order = order;
+        this.stayPos = order == Order.STAY ? this.blockPosition() : null;
+        this.getNavigation().stop();
+        this.updateHomeArea();
+    }
+
+    /** Where it was told to stay (it walks back there if it gets pushed or chased away). */
+    public @Nullable BlockPos getStayPos() {
+        return this.stayPos;
+    }
+
+    /** Gives the job tool back to the player (or drops it at their feet); the worker becomes unemployed. */
+    public void returnTool(Player player) {
+        ItemStack tool = this.getMainHandItem().copy();
+        this.setItemSlot(EquipmentSlot.MAINHAND, ItemStack.EMPTY);
+        if (!tool.isEmpty() && !player.getInventory().add(tool) && player.level() instanceof ServerLevel level) {
+            player.spawnAtLocation(level, tool); // no room: at their feet
+        }
+        this.setJob(WorkerJob.NONE);
+    }
+
+    // ------------------------------------------------------------------ farm & chest
+
+    /** The farm the worker works (see WorkerAssigning). Null until it's given one. */
     public @Nullable BoundingBox getFarmArea() {
         return this.farmArea;
     }
 
+    /** An existing farm to work. Giving a worker work also sets it working, if it was following or staying. */
     public void assignFarm(BoundingBox area) {
         this.farmArea = area;
-        this.updateHomeArea();
+        this.tillsLand = false;
+        this.plannedWater.clear();
+        this.setOrder(Order.WORK);
     }
 
-    public void clearFarm() {
-        this.farmArea = null;
-        this.updateHomeArea();
+    /** A new farm to make (see FarmPlan): it tills the land in the area and puts water where it's planned. */
+    public void createFarm(BoundingBox area, List<BlockPos> water) {
+        this.farmArea = area;
+        this.tillsLand = true;
+        this.plannedWater.clear();
+        this.plannedWater.addAll(water);
+        this.setOrder(Order.WORK);
     }
 
-    // Wander only within the hut, its grounds, and its farm; and be able to plan walks across all of it.
+    /** Whether it made this farm itself, so it tills (and keeps tilling) the land in it. */
+    public boolean tillsLand() {
+        return this.tillsLand;
+    }
+
+    /** Water still to be put in for the farm it's making. */
+    public List<BlockPos> getPlannedWater() {
+        return List.copyOf(this.plannedWater);
+    }
+
+    public boolean isPlannedWater(BlockPos pos) {
+        return this.plannedWater.contains(pos);
+    }
+
+    public void finishPlannedWater(BlockPos pos) {
+        this.plannedWater.remove(pos);
+    }
+
+    /** The chest (or barrel) it takes seeds from and stores its harvest in. Null until it's given one. */
+    public @Nullable BlockPos getStoragePos() {
+        return this.storagePos;
+    }
+
+    public void assignStorage(BlockPos pos) {
+        this.storagePos = pos.immutable();
+        this.storageState = StorageState.OK;
+        this.shelterPos = null; // its night shelter is near the chest: look again
+        this.nextShelterSearchTick = 0;
+        this.setOrder(Order.WORK);
+    }
+
+    /** Whether its chest is there and has something in it that matches. */
+    public boolean chestHas(Predicate<ItemStack> wanted) {
+        BlockPos pos = this.storagePos;
+        if (pos == null || !this.level().isLoaded(pos) || !this.level().getBlockState(pos).is(ModTags.WORKER_STORAGE)) {
+            return false;
+        }
+        Container chest = HopperBlockEntity.getContainerAt(this.level(), pos);
+        if (chest != null) {
+            for (int i = 0; i < chest.getContainerSize(); i++) {
+                if (wanted.test(chest.getItem(i))) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    // While working: wander only around its farm and chest, and be able to plan walks across all of it.
+    // Following or staying: no limits (the order decides where it goes).
     private void updateHomeArea() {
-        if (this.hutBounds == null) {
+        if (this.order != Order.WORK) {
+            this.clearHome();
             return;
         }
-        BoundingBox area = this.hutBounds;
-        if (this.farmArea != null) {
-            area = new BoundingBox(
-                    Math.min(area.minX(), this.farmArea.minX()), Math.min(area.minY(), this.farmArea.minY()), Math.min(area.minZ(), this.farmArea.minZ()),
-                    Math.max(area.maxX(), this.farmArea.maxX()), Math.max(area.maxY(), this.farmArea.maxY()), Math.max(area.maxZ(), this.farmArea.maxZ()));
+        BoundingBox area = this.farmArea;
+        if (this.storagePos != null) {
+            BlockPos chest = this.storagePos;
+            area = area == null ? new BoundingBox(chest) : new BoundingBox(
+                    Math.min(area.minX(), chest.getX()), Math.min(area.minY(), chest.getY()), Math.min(area.minZ(), chest.getZ()),
+                    Math.max(area.maxX(), chest.getX()), Math.max(area.maxY(), chest.getY()), Math.max(area.maxZ(), chest.getZ()));
+        }
+        if (area == null) {
+            this.clearHome();
+            return;
         }
         int radius = Math.max(area.getXSpan(), area.getZSpan()) / 2 + 2;
         this.setHomeTo(area.getCenter(), radius);
@@ -202,11 +332,18 @@ public class WorkerEntity extends PathfinderMob implements InventoryCarrier {
 
     // ------------------------------------------------------------------ shelter
 
-    /** The indoor spot this worker stays at during the night. */
+    /**
+     * The indoor spot this worker stays at during the night: the nearest one to its chest. Null if there's
+     * nowhere indoors near the chest (it looks again every minute, in case you build around it).
+     */
     public @Nullable BlockPos getShelterPos() {
-        if (this.shelterPos == null && !this.shelterSearched && this.hutBounds != null && !this.level().isClientSide()) {
-            this.shelterSearched = true; // workers from older huts: find a spot once
-            this.shelterPos = this.findIndoorSpot(this.hutBounds);
+        if (this.shelterPos == null && this.storagePos != null && this.tickCount >= this.nextShelterSearchTick
+                && !this.level().isClientSide()) {
+            this.nextShelterSearchTick = this.tickCount + SHELTER_RETRY_TICKS;
+            BlockPos chest = this.storagePos;
+            int r = SHELTER_SEARCH_RADIUS;
+            this.shelterPos = this.findIndoorSpot(new BoundingBox(chest.getX() - r, chest.getY() - 2, chest.getZ() - r,
+                    chest.getX() + r, chest.getY() + 2, chest.getZ() + r));
         }
         return this.shelterPos;
     }
@@ -219,7 +356,7 @@ public class WorkerEntity extends PathfinderMob implements InventoryCarrier {
         this.sheltered = sheltered;
     }
 
-    // A spot in the hut with a roof overhead, walls on all four sides, and room to stand.
+    // A spot in the box with a roof overhead, walls on all four sides, and room to stand.
     private @Nullable BlockPos findIndoorSpot(BoundingBox box) {
         Level level = this.level();
         BlockPos center = box.getCenter();
@@ -287,35 +424,11 @@ public class WorkerEntity extends PathfinderMob implements InventoryCarrier {
             return InteractionResult.SUCCESS_SERVER;
         }
 
-        if (held.isEmpty() && player.isSecondaryUseActive() && this.getJob() != WorkerJob.NONE) {
-            ItemStack tool = this.getMainHandItem().copy();
-            this.setItemSlot(EquipmentSlot.MAINHAND, ItemStack.EMPTY);
-            if (!player.getInventory().add(tool)) {
-                this.spawnAtLocation(level, tool);
-            }
-            this.setJob(WorkerJob.NONE);
-            player.sendOverlayMessage(Component.translatable("message.villagerhuts.job_removed"));
-            return InteractionResult.SUCCESS_SERVER;
+        if (player instanceof ServerPlayer serverPlayer) {
+            // Next: right-click a farm or chest; or, sneaking, the ground for a new farm.
+            WorkerAssigning.toggle(serverPlayer, this, held.isEmpty() && player.isSecondaryUseActive());
         }
-
-        player.sendOverlayMessage(this.statusMessage());
         return InteractionResult.SUCCESS_SERVER;
-    }
-
-    private Component statusMessage() {
-        WorkerJob job = this.getJob();
-        Component farm = this.farmArea == null
-                ? Component.translatable("message.villagerhuts.status_farm_hut")
-                : Component.translatable("message.villagerhuts.status_farm_assigned",
-                        this.farmArea.getXSpan(), this.farmArea.getZSpan(), this.farmArea.getCenter().getX(), this.farmArea.getCenter().getZ());
-        if (job == WorkerJob.NONE) {
-            return Component.translatable("message.villagerhuts.status_unemployed", farm);
-        }
-        int carried = 0;
-        for (ItemStack stack : this.inventory.getItems()) {
-            carried += stack.getCount();
-        }
-        return Component.translatable("message.villagerhuts.status_working", job.displayName(), carried, farm);
     }
 
     // ------------------------------------------------------------------ inventory & work tracking
@@ -378,11 +491,46 @@ public class WorkerEntity extends PathfinderMob implements InventoryCarrier {
         return carried;
     }
 
-    /** Set by the farming goal after each look over its work area. */
-    public void setFarmCounts(int farmland, int empty, int ripe) {
+    /**
+     * Set by the farming goal after each look over its farm (land still to be tilled counts as empty farmland).
+     * Spots it's skipping for now (e.g. it can't get to them) are left out of the counts.
+     * @param done  nothing left it can do there right now, and nothing in its chest (seeds, bone meal) that would change that
+     * @param stuck there's work it's skipping for now
+     */
+    public void setFarmCounts(int farmland, int empty, int ripe, int growing, boolean done, boolean stuck) {
         this.farmlandInArea = farmland;
         this.emptyFarmland = empty;
         this.ripeCrops = ripe;
+        this.growingCrops = growing;
+        this.farmWorkDone = done;
+        this.farmWorkStuck = stuck;
+    }
+
+    /** Crops still growing (as of the last look). */
+    public int getGrowingCrops() {
+        return this.growingCrops;
+    }
+
+    /**
+     * All its work is done for now: everything it can harvest, plant, till or bone-meal is done, and it's had
+     * nothing to do for a few seconds. Then it puts everything it carries away in its chest.
+     */
+    public boolean isWorkDone() {
+        boolean nothingToDo = this.getJob() == WorkerJob.NONE || this.farmArea == null || this.farmWorkDone;
+        return nothingToDo && this.isIdle();
+    }
+
+    public static boolean isBoneMeal(ItemStack stack) {
+        return stack.is(Items.BONE_MEAL);
+    }
+
+    public boolean hasBoneMeal() {
+        for (ItemStack stack : this.inventory.getItems()) {
+            if (isBoneMeal(stack)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /** Farmland spots with nothing planted (as of the last look). */
@@ -435,8 +583,17 @@ public class WorkerEntity extends PathfinderMob implements InventoryCarrier {
                     ? activity.describeActivity()
                     : Component.translatable("activity.villagerhuts.panicking");
         }
+        if (this.order == Order.FOLLOW) {
+            return Component.translatable(this.getOwner() != null ? "activity.villagerhuts.following" : "activity.villagerhuts.following_waiting");
+        }
+        if (this.order == Order.STAY) {
+            return Component.translatable("activity.villagerhuts.staying");
+        }
         if (this.getJob() == WorkerJob.NONE) {
             return Component.translatable("activity.villagerhuts.unemployed");
+        }
+        if (this.farmArea == null) {
+            return Component.translatable("activity.villagerhuts.no_farm");
         }
         if (this.farmlandInArea == 0) {
             return Component.translatable("activity.villagerhuts.no_farmland");
@@ -455,7 +612,7 @@ public class WorkerEntity extends PathfinderMob implements InventoryCarrier {
         if (outOfSeeds) {
             return Component.translatable("activity.villagerhuts.out_of_seeds");
         }
-        if (this.farmUnreachable && (this.ripeCrops > 0 || (this.hasSeeds() && this.emptyFarmland > 0))) {
+        if (this.farmUnreachable && this.farmWorkStuck) {
             return Component.translatable("activity.villagerhuts.farm_unreachable");
         }
         return Component.translatable("activity.villagerhuts.waiting");
@@ -511,9 +668,12 @@ public class WorkerEntity extends PathfinderMob implements InventoryCarrier {
         super.addAdditionalSaveData(output);
         output.putString("job", this.getJob().id());
         output.storeNullable("owner", UUIDUtil.CODEC, this.ownerId);
-        output.storeNullable("hut_bounds", BoundingBox.CODEC, this.hutBounds);
+        output.putString("order", this.order.id());
+        output.storeNullable("stay_pos", BlockPos.CODEC, this.stayPos);
         output.storeNullable("farm_area", BoundingBox.CODEC, this.farmArea);
-        output.storeNullable("shelter_pos", BlockPos.CODEC, this.shelterPos);
+        output.putBoolean("tills_land", this.tillsLand);
+        output.store("planned_water", BlockPos.CODEC.listOf(), List.copyOf(this.plannedWater));
+        output.storeNullable("storage_pos", BlockPos.CODEC, this.storagePos);
         output.store("collected", COLLECTED_CODEC, this.collected);
         output.putLong("employed_ticks", this.employedTicks);
         this.writeInventoryToTag(output);
@@ -524,15 +684,18 @@ public class WorkerEntity extends PathfinderMob implements InventoryCarrier {
         super.readAdditionalSaveData(input);
         this.setJob(WorkerJob.byId(input.getStringOr("job", WorkerJob.NONE.id())));
         this.ownerId = input.read("owner", UUIDUtil.CODEC).orElse(null);
-        this.hutBounds = input.read("hut_bounds", BoundingBox.CODEC).orElse(null);
+        this.order = Order.byId(input.getStringOr("order", Order.WORK.id()));
+        this.stayPos = input.read("stay_pos", BlockPos.CODEC).orElse(null);
         this.farmArea = input.read("farm_area", BoundingBox.CODEC).orElse(null);
-        this.shelterPos = input.read("shelter_pos", BlockPos.CODEC).orElse(null);
-        this.shelterSearched = this.shelterPos != null;
+        this.tillsLand = input.getBooleanOr("tills_land", false);
+        this.plannedWater.clear();
+        this.plannedWater.addAll(input.read("planned_water", BlockPos.CODEC.listOf()).orElse(List.of()));
+        this.storagePos = input.read("storage_pos", BlockPos.CODEC).orElse(null);
         this.collected.clear();
         this.collected.putAll(input.read("collected", COLLECTED_CODEC).orElse(Map.of()));
         this.employedTicks = input.getLongOr("employed_ticks", 0L);
         this.readInventoryFromTag(input);
-        this.updateHomeArea(); // also upgrades workers saved before follow range was raised
+        this.updateHomeArea();
     }
 
     @Override

@@ -10,7 +10,9 @@ import java.util.UUID;
 import com.mojang.blaze3d.platform.InputConstants;
 
 import io.github.nenwam.villagerhuts.VillagerHuts;
+import io.github.nenwam.villagerhuts.network.RenameWorkerPayload;
 import io.github.nenwam.villagerhuts.network.RequestWorkersPayload;
+import io.github.nenwam.villagerhuts.network.WorkerCommandPayload;
 import io.github.nenwam.villagerhuts.network.WorkerInfo;
 import io.github.nenwam.villagerhuts.network.WorkerListPayload;
 import net.minecraft.client.KeyMapping;
@@ -60,6 +62,16 @@ public final class ClientWorkers {
 
     public static void request() {
         ClientPacketDistributor.sendToServer(RequestWorkersPayload.INSTANCE);
+    }
+
+    /** Asks the server to carry out a worker panel button for one of your workers. It replies with a new list. */
+    public static void command(UUID worker, WorkerCommandPayload.Command command) {
+        ClientPacketDistributor.sendToServer(new WorkerCommandPayload(worker, command));
+    }
+
+    /** Asks the server to rename one of your workers (an empty name removes its name). It replies with a new list. */
+    public static void rename(UUID worker, String name) {
+        ClientPacketDistributor.sendToServer(new RenameWorkerPayload(worker, name));
     }
 
     /** Called with each new list (the worker panel uses this to refresh). */

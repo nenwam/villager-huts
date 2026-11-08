@@ -86,11 +86,11 @@ public final class InventoryButton {
     }
 
     /**
-     * Same size as the recipe book button, with a hut icon. Light and raised while the panel is
+     * Same size as the recipe book button, with a farmer icon. Light and raised while the panel is
      * closed; dark and pushed in while it's open.
      */
     static final class WorkersButton extends Button {
-        private final ItemStack icon = new ItemStack(ModItems.WORKER_HUT.get());
+        private final ItemStack icon = new ItemStack(ModItems.FARMER.get());
         private Boolean shownState;
 
         WorkersButton() {

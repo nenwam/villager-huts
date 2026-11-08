@@ -24,31 +24,35 @@ import net.minecraft.world.item.Items;
 
 /**
  * The scrolling list of workers inside the worker panel (see WorkerPanel), drawn in the
- * inventory's style: each worker is a colored slot with its job tool and number, its name and
- * status, a book button that opens its details page, an eye toggle for its farm highlight,
- * and a row of item slots for what it collected.
+ * inventory's style: each worker is a colored slot with its job tool and number, its name, a book
+ * button that opens its details page and an eye toggle for its farm and chest highlight; under those, its
+ * status (up to two lines) and a row of item slots for what it collected.
  */
 class WorkerList extends ContainerObjectSelectionList<WorkerList.Row> {
     // Row heights include 2px of list padding above and below, plus a little space between workers.
     private static final int ROW_GAP = 6;
-    static final int ROW_HEIGHT = 18 + 4 + ROW_GAP;            // worker without collected items
-    private static final int ROW_HEIGHT_ITEMS = 38 + 4 + ROW_GAP; // with a row of item slots
+    private static final int STATUS_LINES = 2; // longer statuses are cut short (the details page has room for all of it)
     private static final int SCROLLBAR_WIDTH = 14;
     private static final Identifier SCROLLER = Identifier.withDefaultNamespace("container/creative_inventory/scroller");
     private static final Identifier SCROLLER_DISABLED = Identifier.withDefaultNamespace("container/creative_inventory/scroller_disabled");
 
     WorkerList(Minecraft minecraft) {
-        super(minecraft, 0, 0, 0, ROW_HEIGHT);
+        super(minecraft, 0, 0, 0, rowHeight(1, false));
     }
 
     void setWorkers(List<WorkerInfo> workers) {
         double scroll = this.scrollAmount();
         this.clearEntries();
         for (WorkerInfo info : workers) {
-            Row row = new Row(info);
-            this.addEntry(row, row.collected.isEmpty() ? ROW_HEIGHT : ROW_HEIGHT_ITEMS);
+            Row row = new Row(info, this.minecraft.font.split(info.status(), this.getRowWidth() - 2 * Entry.CONTENT_PADDING));
+            this.addEntry(row, rowHeight(row.status.size(), !row.collected.isEmpty()));
         }
         this.setScrollAmount(scroll);
+    }
+
+    // The worker's slot, its status lines, and its collected items (if any).
+    private static int rowHeight(int statusLines, boolean items) {
+        return 18 + 2 + statusLines * NativeStyle.LINE + (items ? 19 : 0) + 4 + ROW_GAP;
     }
 
     @Override
@@ -102,17 +106,19 @@ class WorkerList extends ContainerObjectSelectionList<WorkerList.Row> {
         private final SlotToggle areaToggle;
         private final SlotButton infoButton;
         private final ItemStack jobIcon;
+        private final List<FormattedCharSequence> status;
         private final List<Map.Entry<ItemStack, Integer>> collected = new ArrayList<>();
 
-        Row(WorkerInfo info) {
+        Row(WorkerInfo info, List<FormattedCharSequence> status) {
             this.info = info;
+            this.status = status.size() > STATUS_LINES ? status.subList(0, STATUS_LINES) : status;
             this.areaToggle = new SlotToggle(button -> ClientWorkers.toggleHighlight(info.id()),
                     () -> ClientWorkers.isShown(info.id()), () -> ClientWorkers.color(info.number()),
                     Component.translatable("gui.villagerhuts.panel.show"), Component.translatable("gui.villagerhuts.panel.hide"));
-            this.areaToggle.active = info.workArea().isPresent();
+            this.areaToggle.active = info.farm().isPresent() || info.storage().isPresent();
             this.infoButton = new SlotButton(new ItemStack(Items.BOOK), Component.translatable("gui.villagerhuts.panel.details"),
                     button -> WorkerPanel.showDetails(info.id()));
-            this.jobIcon = new ItemStack(info.job().equals("farmer") ? Items.IRON_HOE : ModItems.WORKER_HUT.get());
+            this.jobIcon = new ItemStack(info.job().equals("farmer") ? Items.IRON_HOE : ModItems.FARMER.get());
             List<Map.Entry<Identifier, Integer>> items = new ArrayList<>(info.collected().entrySet());
             items.sort(Map.Entry.<Identifier, Integer>comparingByValue().reversed());
             for (Map.Entry<Identifier, Integer> item : items) {
@@ -135,18 +141,22 @@ class WorkerList extends ContainerObjectSelectionList<WorkerList.Row> {
             this.areaToggle.setPosition(right - 18, y);
             this.infoButton.setPosition(right - 38, y);
             int textX = x + 21;
-            int textWidth = this.infoButton.getX() - textX - 2;
 
-            // Name, with days worked (small) at the end of the line; status underneath.
+            // Name beside the slot, with days worked at the end of the line.
             FormattedCharSequence days = this.days().getVisualOrderText();
-            int daysX = this.infoButton.getX() - 3 - NativeStyle.smallWidth(font, days);
-            NativeStyle.smallText(graphics, font, days, daysX, y + 2, NativeStyle.LABEL);
-            graphics.text(font, fit(font, this.title(), daysX - textX - 4), textX, y + 1, NativeStyle.LABEL, false);
-            NativeStyle.smallText(graphics, font, fitSmall(font, this.info.status(), textWidth), textX, y + 11,
-                    this.info.loaded() ? NativeStyle.LABEL : 0xFF707070);
+            int daysX = this.infoButton.getX() - 3 - font.width(days);
+            NativeStyle.text(graphics, font, days, daysX, y + 5, NativeStyle.LABEL_SOFT);
+            NativeStyle.text(graphics, font, fit(font, this.title(), daysX - textX - 4), textX, y + 5, NativeStyle.LABEL);
+
+            // Status underneath, across the whole row (gray when it's the last known one, from far away).
+            int lineY = y + 20;
+            for (FormattedCharSequence line : this.status) {
+                NativeStyle.text(graphics, font, line, x, lineY, this.info.loaded() ? NativeStyle.LABEL : NativeStyle.LABEL_SOFT);
+                lineY += NativeStyle.LINE;
+            }
 
             // What it has collected, as a row of item slots (most first). Nothing collected: no row.
-            int itemsY = y + 20;
+            int itemsY = lineY + 1;
             int hoveredItem = -1;
             for (int i = 0; i < this.collected.size(); i++) {
                 int slotX = x + i * 18;
@@ -202,9 +212,5 @@ class WorkerList extends ContainerObjectSelectionList<WorkerList.Row> {
 
     static FormattedCharSequence fit(Font font, Component text, int width) {
         return Language.getInstance().getVisualOrder(font.substrByWidth(text, Math.max(0, width)));
-    }
-
-    static FormattedCharSequence fitSmall(Font font, Component text, int width) {
-        return fit(font, text, (int) (width / NativeStyle.SMALL));
     }
 }

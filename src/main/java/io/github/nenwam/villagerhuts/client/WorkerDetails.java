@@ -23,11 +23,12 @@ import net.minecraft.world.level.levelgen.structure.BoundingBox;
 import org.jspecify.annotations.Nullable;
 
 /**
- * The worker details page of the worker panel: who the worker is, what it's doing, where it
- * works, and everything it has collected. Reads the latest data every frame, so it updates live.
+ * The worker details page of the worker panel: the worker's slot (its buttons, for orders and its tool,
+ * are separate widgets beside it: see WorkerPanel), what it's doing, where it works, and everything it
+ * has collected. Reads the latest data every frame, so it updates live.
  */
 final class WorkerDetails extends AbstractWidget {
-    private static final int LINE = 9;
+    private static final int LINE = NativeStyle.LINE;
 
     private @Nullable UUID worker;
 
@@ -69,20 +70,17 @@ final class WorkerDetails extends AbstractWidget {
         int y = this.getY();
         int width = this.getWidth();
 
-        // Who: the worker's slot (color, tool, number), name, and job line.
-        ItemStack icon = new ItemStack(info.job().equals("farmer") ? Items.IRON_HOE : ModItems.WORKER_HUT.get());
+        // Who: the worker's slot (color, tool, number). Its name and job are in the panel's title.
+        ItemStack icon = new ItemStack(info.job().equals("farmer") ? Items.IRON_HOE : ModItems.FARMER.get());
         NativeStyle.slot(graphics, x, y, ClientWorkers.color(info.number()));
         graphics.item(icon, x + 1, y + 1);
         graphics.itemDecorations(font, icon, x + 1, y + 1, String.valueOf(info.number()));
-        graphics.text(font, WorkerList.fit(font, title(info), width - 21), x + 21, y + 1, NativeStyle.LABEL, false);
-        NativeStyle.smallText(graphics, font, WorkerList.fitSmall(font, Component.translatable("gui.villagerhuts.details.job_line",
-                Component.translatable("job.villagerhuts." + info.job()), info.number()), width - 21), x + 21, y + 11, NativeStyle.LABEL_SOFT);
 
         // What, where, how long.
         int lineY = y + 23;
         for (Component line : this.facts(info)) {
-            for (FormattedCharSequence wrapped : font.split(line, (int) (width / NativeStyle.SMALL))) {
-                NativeStyle.smallText(graphics, font, wrapped, x, lineY, NativeStyle.LABEL);
+            for (FormattedCharSequence wrapped : font.split(line, width)) {
+                NativeStyle.text(graphics, font, wrapped, x, lineY, NativeStyle.LABEL);
                 lineY += LINE;
             }
         }
@@ -92,7 +90,7 @@ final class WorkerDetails extends AbstractWidget {
             return;
         }
         lineY += 3;
-        NativeStyle.smallText(graphics, font, Component.translatable("gui.villagerhuts.details.collected").getVisualOrderText(), x, lineY, NativeStyle.LABEL);
+        NativeStyle.text(graphics, font, Component.translatable("gui.villagerhuts.details.collected").getVisualOrderText(), x, lineY, NativeStyle.LABEL);
         lineY += LINE;
         List<Map.Entry<Identifier, Integer>> items = new ArrayList<>(info.collected().entrySet());
         items.sort(Map.Entry.<Identifier, Integer>comparingByValue().reversed());
@@ -123,15 +121,19 @@ final class WorkerDetails extends AbstractWidget {
         lines.add(fact("worked", days == 0 ? Component.translatable("gui.villagerhuts.details.days_less")
                 : days == 1 ? Component.translatable("gui.villagerhuts.details.days_one")
                 : Component.translatable("gui.villagerhuts.details.days", days)));
-        if (info.farmAssigned() && info.workArea().isPresent()) {
-            BoundingBox area = info.workArea().get();
+        if (info.farm().isPresent()) {
+            BoundingBox area = info.farm().get();
             lines.add(fact("farm", Component.translatable("gui.villagerhuts.details.farm_assigned",
                     area.getXSpan(), area.getZSpan(), area.getCenter().getX(), area.getCenter().getZ())));
         } else {
-            lines.add(fact("farm", Component.translatable("gui.villagerhuts.details.farm_hut")));
+            lines.add(fact("farm", Component.translatable("gui.villagerhuts.details.farm_none")));
         }
-        BlockPos hut = info.hutCenter();
-        lines.add(fact("hut", Component.translatable("gui.villagerhuts.details.position", hut.getX(), hut.getY(), hut.getZ())));
+        if (info.storage().isPresent()) {
+            BlockPos chest = info.storage().get();
+            lines.add(fact("chest", Component.translatable("gui.villagerhuts.details.position", chest.getX(), chest.getY(), chest.getZ())));
+        } else {
+            lines.add(fact("chest", Component.translatable("gui.villagerhuts.details.chest_none")));
+        }
         lines.add(info.loaded()
                 ? fact("carrying", Component.translatable("gui.villagerhuts.details.carrying_value", info.carried()))
                 : fact("carrying", Component.translatable("gui.villagerhuts.details.unknown_far_away")));

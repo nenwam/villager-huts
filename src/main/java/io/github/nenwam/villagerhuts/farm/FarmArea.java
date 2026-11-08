@@ -3,6 +3,7 @@ package io.github.nenwam.villagerhuts.farm;
 import java.util.ArrayList;
 import java.util.List;
 
+import io.github.nenwam.villagerhuts.entity.WorkerAssigning;
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.level.BlockGetter;
 import net.minecraft.world.level.block.FarmlandBlock;
@@ -12,7 +13,7 @@ import net.neoforged.neoforge.common.Tags;
 import org.jspecify.annotations.Nullable;
 
 /**
- * The part of a farm a worker gets when you point a Work Area Marker at it: a size-by-size square
+ * The part of a farm a worker gets when you assign it (see WorkerAssigning): a size-by-size square
  * centered where you aim (a few blocks up and down for terraced farms), trimmed to the farmland inside.
  * Shared by the server (assigning it) and the client (previewing it), so the preview matches.
  *
@@ -24,14 +25,7 @@ public record FarmArea(BoundingBox window, List<BlockPos> farmland, @Nullable Bo
     public static final int SEARCH_HEIGHT = 3;
 
     public static FarmArea find(BlockGetter level, BlockPos aimedAt, int size) {
-        // Aiming at farmland, at a crop on farmland, or at the ground next to a farm all work.
-        int groundY = isFarmland(level.getBlockState(aimedAt)) ? aimedAt.getY()
-                : isFarmland(level.getBlockState(aimedAt.below())) ? aimedAt.getY() - 1
-                : aimedAt.getY();
-        int minX = aimedAt.getX() - size / 2;
-        int minZ = aimedAt.getZ() - size / 2;
-        BoundingBox window = new BoundingBox(minX, groundY - SEARCH_HEIGHT, minZ,
-                minX + size - 1, groundY + SEARCH_HEIGHT, minZ + size - 1);
+        BoundingBox window = window(level, aimedAt, size);
 
         List<BlockPos> farmland = new ArrayList<>();
         for (BlockPos pos : BlockPos.betweenClosed(window.minX(), window.minY(), window.minZ(), window.maxX(), window.maxY(), window.maxZ())) {
@@ -46,15 +40,22 @@ public record FarmArea(BoundingBox window, List<BlockPos> farmland, @Nullable Bo
         return new FarmArea(window, farmland, new BoundingBox(box.minX(), box.minY(), box.minZ(), box.maxX(), box.maxY() + 1, box.maxZ()));
     }
 
-    /** Within maxDistance blocks of the hut, measured flat from the hut's center to the farm's center. */
-    public boolean isNear(BlockPos hutCenter, int maxDistance) {
-        if (this.box == null) {
-            return false;
-        }
-        BlockPos center = this.box.getCenter();
-        double dx = center.getX() - hutCenter.getX();
-        double dz = center.getZ() - hutCenter.getZ();
-        return dx * dx + dz * dz <= (double) maxDistance * maxDistance;
+    /**
+     * The size-by-size square searched around where you aim, SEARCH_HEIGHT blocks up and down from the ground.
+     * Aiming at farmland, at a crop on farmland, or at the ground next to a farm all work.
+     */
+    public static BoundingBox window(BlockGetter level, BlockPos aimedAt, int size) {
+        int groundY = isFarmland(level.getBlockState(aimedAt)) ? aimedAt.getY()
+                : isFarmland(level.getBlockState(aimedAt.below())) ? aimedAt.getY() - 1
+                : aimedAt.getY();
+        int minX = aimedAt.getX() - size / 2;
+        int minZ = aimedAt.getZ() - size / 2;
+        return new BoundingBox(minX, groundY - SEARCH_HEIGHT, minZ, minX + size - 1, groundY + SEARCH_HEIGHT, minZ + size - 1);
+    }
+
+    /** Within maxDistance blocks of a spot (the worker), measured flat to the farm's center. */
+    public boolean isNear(BlockPos from, int maxDistance) {
+        return this.box != null && WorkerAssigning.isWithin(from, this.box.getCenter(), maxDistance);
     }
 
     public static boolean isFarmland(BlockState state) {

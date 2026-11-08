@@ -40,7 +40,7 @@ authors="connor"
 
 # The description text for the mod (multi line!) (#mandatory)
 description='''
-Place a hut, get a villager worker. Assign villagers jobs like farming and they work for you.
+Hire villager workers like farmers, give them a farm and a chest, and they work it for you.
 '''
 
 # The [[mixins]] block allows you to declare your mixin config to FML so that it gets loaded.

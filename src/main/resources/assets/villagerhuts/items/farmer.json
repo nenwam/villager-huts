@@ -1,6 +1,6 @@
 {
   "model": {
     "type": "minecraft:model",
-    "model": "villagerhuts:item/work_area_marker"
+    "model": "villagerhuts:item/farmer"
   }
 }

@@ -13,11 +13,10 @@ import net.minecraft.util.FormattedCharSequence;
  */
 final class NativeStyle {
     static final int LABEL = 0xFF404040;       // vanilla container label color ("Crafting")
-    static final int LABEL_SOFT = 0xFF606060;
+    static final int LABEL_SOFT = 0xFF555555;  // secondary text: vanilla's dark gray, still readable on the panel
+    static final int LINE = 10;                 // line spacing for panel text (the font is 9 tall)
     static final int SLOT_FILL = 0xFF8B8B8B;
     static final int SLOT_HOVER = 0x80FFFFFF;
-    static final float SMALL = 0.75F;           // scale for secondary text
-    private static final float BOLD_OFFSET = 0.5F;
 
     private static final Identifier TEXTURE = AbstractContainerScreen.INVENTORY_LOCATION;
     private static final int TEXTURE_SIZE = 256;
@@ -86,21 +85,11 @@ final class NativeStyle {
     }
 
     /**
-     * Text at 3/4 size, without a shadow (like container labels). Drawn twice, half a pixel apart,
-     * so the thinner strokes of the smaller size keep some weight (without making it wider).
+     * Panel text: full size, without a shadow (like container labels). Always full size: the pixel font
+     * only stays sharp at whole-number scales, so smaller text turns blurry.
      */
-    static void smallText(GuiGraphicsExtractor g, Font font, FormattedCharSequence text, int x, int y, int color) {
-        g.pose().pushMatrix();
-        g.pose().translate(x, y);
-        g.pose().scale(SMALL, SMALL);
-        g.text(font, text, 0, 0, color, false);
-        g.pose().translate(BOLD_OFFSET / SMALL, 0);
-        g.text(font, text, 0, 0, color, false);
-        g.pose().popMatrix();
-    }
-
-    static int smallWidth(Font font, FormattedCharSequence text) {
-        return (int) Math.ceil(font.width(text) * SMALL);
+    static void text(GuiGraphicsExtractor g, Font font, FormattedCharSequence text, int x, int y, int color) {
+        g.text(font, text, x, y, color, false);
     }
 
     private static void blit(GuiGraphicsExtractor g, int x, int y, int u, int v, int width, int height, int srcWidth, int srcHeight) {

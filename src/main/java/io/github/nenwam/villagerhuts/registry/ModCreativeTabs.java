@@ -15,12 +15,8 @@ public final class ModCreativeTabs {
     public static final DeferredHolder<CreativeModeTab, CreativeModeTab> MAIN = TABS.register("main", () -> CreativeModeTab.builder()
             .title(Component.translatable("itemGroup.villagerhuts"))
             .withTabsBefore(CreativeModeTabs.SPAWN_EGGS)
-            .icon(() -> ModItems.FARMER_HUT.get().getDefaultInstance())
-            .displayItems((params, output) -> {
-                output.accept(ModItems.FARMER_HUT.get());
-                output.accept(ModItems.WORKER_HUT.get());
-                output.accept(ModItems.WORK_AREA_MARKER.get());
-            })
+            .icon(() -> ModItems.FARMER.get().getDefaultInstance())
+            .displayItems((params, output) -> output.accept(ModItems.FARMER.get()))
             .build());
 
     private ModCreativeTabs() {}

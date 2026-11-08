@@ -30,13 +30,14 @@ import net.neoforged.neoforge.client.event.ExtractLevelRenderStateEvent;
 import net.neoforged.neoforge.client.event.SubmitCustomGeometryEvent;
 
 /**
- * For each worker whose area is shown (from the worker panel): an outline of its farm in the
- * worker's color, its number floating above the farm, and its number above the worker's head.
+ * For each worker whose area is shown (from the worker panel): outlines of its farm and its chest in
+ * the worker's color, its number floating above each, and its number above the worker's head.
  * Numbers face the camera, show through terrain, and grow with distance so they stay readable.
  */
 @EventBusSubscriber(modid = VillagerHuts.MODID, value = Dist.CLIENT)
 public final class WorkerAreaHighlights {
     private static final float AREA_LABEL_HEIGHT = 2.5F;   // blocks above the area's top
+    private static final float CHEST_LABEL_HEIGHT = 0.6F;  // blocks above the chest
     private static final float AREA_LABEL_SCALE = 0.05F;   // twice a name tag
     private static final float HEAD_LABEL_SCALE = 0.03F;
     private static final float GROW_DISTANCE = 12F;        // beyond this, numbers grow so they stay readable
@@ -70,11 +71,17 @@ public final class WorkerAreaHighlights {
             int color = ClientWorkers.color(worker.number());
             Component number = Component.literal(" " + worker.number() + " ");
 
-            if (worker.workArea().isPresent()) {
-                BoundingBox area = worker.workArea().get();
+            if (worker.farm().isPresent()) {
+                BoundingBox area = worker.farm().get();
                 boxes.add(new Box(area, color));
                 labels.add(new Label(new Vec3(area.minX() + area.getXSpan() / 2.0, area.maxY() + 1 + AREA_LABEL_HEIGHT,
                         area.minZ() + area.getZSpan() / 2.0), color, number, AREA_LABEL_SCALE));
+            }
+            if (worker.storage().isPresent()) {
+                BoundingBox chest = AssignPreview.storageBox(event.getLevel(), worker.storage().get());
+                boxes.add(new Box(chest, color));
+                labels.add(new Label(new Vec3(chest.minX() + chest.getXSpan() / 2.0, chest.maxY() + 1 + CHEST_LABEL_HEIGHT,
+                        chest.minZ() + chest.getZSpan() / 2.0), color, number, HEAD_LABEL_SCALE));
             }
 
             // Above the worker's head (only while it's near enough to be loaded on your side).

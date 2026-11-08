@@ -1,7 +1,7 @@
 # Villager Huts
 
-A NeoForge mod for Minecraft 26.3: place a hut item to build a hut with a villager worker,
-then assign the villager a job (starting with farming).
+A NeoForge mod for Minecraft 26.3: hire villager workers (starting with farmers), give each one a farm
+(or have them make one) and a chest, and they look after the farm for you.
 
 ## Commands
 
@@ -17,43 +17,54 @@ Requires JDK 25.
 
 ## How to play
 
-- **Hut items:** the **Farmer Hut** builds a hut with its own farm; the **Worker Hut** builds just the hut.
-  Hold one and look at the ground to see a wireframe preview (yellow = fits, red = blocked).
-  Sneak + right-click to rotate it 90°. Right-click to build.
-- **Worker:** right-click with a hoe to make them a farmer. Right-click with an empty hand for status;
-  sneak + right-click with an empty hand to take the tool back.
-- **Work Area Marker:** assigns a farm you built to a worker. Right-click the worker to link the marker,
-  look at the farm to preview the area (yellow box, farmland covered in green), right-click to assign.
-  Sneak + right-click the worker to clear it. Limits (Config screen): 16×16 blocks, within 32 blocks of the hut.
+- **Farmer:** craft one from an **iron hoe** and a **composter** (any arrangement); picking up an iron hoe
+  unlocks it in the recipe book. Use it on the ground to hire a farmer there. They hold the iron hoe, belong
+  to you, and **follow you** until you give them a farm or a chest.
+- **Giving them a farm or chest:** right-click your farmer with an empty hand, then right-click a farm or a chest.
+  While they're selected, a hint shows above the hotbar and looking at blocks previews what they'd get: a chest
+  (or barrel) is outlined in yellow; anywhere else shows the farm area (yellow box, farmland covered in green).
+  Red means there's no farmland there, or it's too far. Right-click the farmer again to cancel (it also runs out
+  after a minute). Do it once for the farm and once for the chest; doing it again replaces them.
+- **Making a new farm:** shift + right-click your farmer with an empty hand, then right-click the ground. The
+  preview shows a cyan box, the land they'll till outlined in orange (grass, dirt or paths with nothing on top
+  but air or short grass), and where they'll put water in blue, so all the farmland stays wet. They put the
+  water in, then till the land right away, and plant it once they have seeds.
+- Limits (Config screen): farms up to 16×16 blocks (new farms 9×9), within 32 blocks of the farmer; the chest
+  within 32 blocks of the farm.
 - **Worker panel:** the **Workers** button in the survival inventory opens a panel beside it (the **J** key
   opens the inventory with the panel, also in creative). It lists all your workers: live status, days worked,
-  what they're carrying and have collected; click a worker's book for its details page. **Show** highlights a worker's farm
-  in its color, with its number above the farm and above the worker's head; **Show all** does every worker.
-- **Seeds:** farms start unplanted and workers start with no seeds. Put seeds (wheat seeds, carrots,
-  potatoes, beetroot seeds...) in the hut chest; the farmer fetches them and plants the empty farmland.
-- Farmers harvest and replant their farm (assigned, or else the one at their hut), store the harvest in
-  the hut chest, go inside at night, and run from hostile mobs.
-- Mobs that hunt villagers (zombies, drowned, raiders, and modded villager-hunters) hunt workers the same way.
+  what they're carrying and have collected; click a worker's book for its details page. **Show** highlights a
+  worker's farm and chest in its color, with its number above each and above the worker's head; **Show all**
+  does every worker. On a details page:
+  - the **name tag** renames the worker: type a name and press Enter (Esc cancels; an empty name removes it).
+    Workers that are far away take the new name when they're next loaded;
+  - beside its slot, its orders: **Work** (wheat), **Follow me** (lead) and **Stay here** (armor stand); the one
+    it's on is in its color. Giving it a farm or chest also sets it working;
+  - on the right, the **iron hoe** takes the hoe back (it's unemployed until you right-click it with a hoe).
+  The orders and the hoe button only work while the worker is near enough to be loaded.
+- **Seeds and bone meal:** farmers start with no seeds. Put seeds (wheat seeds, carrots, potatoes, beetroot
+  seeds...) in their chest; the farmer fetches them and plants the empty farmland. Put bone meal in the chest
+  and they use it on their growing crops.
+- Farmers harvest and replant their farm and store the harvest in their chest. When their pockets fill up they
+  keep their seeds and bone meal and carry on; once all their work is done (nothing to harvest, plant, till or
+  bone-meal, and nothing in the chest that would change that) they put everything away, seeds and bone meal too.
+- At night farmers go indoors if their chest is inside a building (somewhere with a roof and walls near the
+  chest), and they run from hostile mobs. Mobs that hunt villagers (zombies, drowned, raiders, and modded
+  villager-hunters) hunt workers the same way.
 
 ## Automated tests
 
-`gametest/VillagerHutsTests.java` builds a Farmer Hut on a test platform and checks the mod copes when
-things go wrong: seeds fetched and planted exactly, harvests stored, pitcher pods ignored, the chest broken
-(with full pockets, and mid-trip) and replaced, the farm fenced off, the chest walled in, a worker dying,
-zombies hunting workers, and huts refused when they don't fit. Run them after changes with
+`gametest/VillagerHutsTests.java` builds a fenced farm and a chest on a test platform, hires a farmer for
+them, and checks the mod copes when things go wrong: the Farmer item (and following its owner), assigning a farm
+and chest (and refusing spots with no farmland or too far away), new farms planned, watered and tilled, seeds
+fetched and planted exactly, bone meal used, harvests stored, leftovers put away once work is done, pitcher pods
+ignored, the chest broken (with full pockets, and mid-trip) and a new one assigned, the farm fenced off, the chest
+walled in, staying put, a worker dying, workers renamed and the hoe taken back from the panel, and zombies
+hunting workers. Run them after changes with
 `./gradlew runGameTestServer`. They're only registered in development, never in a normal game.
 
-## Hut designs
+## Tools
 
-Huts are structure files in `src/main/resources/data/villagerhuts/structure/`.
-To design your own, build it in-game and save it with a Structure Block, then copy the `.nbt`
-from the world's `generated/villagerhuts/structure/` folder over the existing file.
-A design must follow the rules at the top of `hut/HutBuilder.java`:
-
-- The front edge is the north side (low Z). It goes on the block you click, centered.
-- The bottom layer replaces the ground.
-- A Structure Block in **Data** mode with the text `worker` marks where the worker spawns.
-
-`tools/make_hut_designs.py` generates the starter Farmer Hut and Worker Hut, and `tools/make_icons.py` draws the item icons.
+`tools/make_icons.py` draws the item icons, and `tools/make_test_platform.py` builds the platform the tests run on.
 
 Started from the NeoForge MDK (see `TEMPLATE_LICENSE.txt`).

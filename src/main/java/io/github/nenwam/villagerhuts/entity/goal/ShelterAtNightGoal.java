@@ -10,8 +10,9 @@ import net.minecraft.world.level.pathfinder.Path;
 import net.minecraft.world.phys.Vec3;
 
 /**
- * When it's dark outside (night, or a thunderstorm), walk to the shelter spot inside the hut and
+ * When it's dark outside (night, or a thunderstorm), walk to the indoor spot nearest its chest and
  * stay there until it's light again. Holding the legs blocks work and wandering in the meantime.
+ * (No indoor spot near the chest: it carries on outside, running from monsters.)
  */
 public class ShelterAtNightGoal extends Goal implements DescribesActivity {
     private static final double ARRIVED_DISTANCE_SQR = 1.0;

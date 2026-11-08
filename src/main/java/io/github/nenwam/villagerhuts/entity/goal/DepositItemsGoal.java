@@ -12,8 +12,10 @@ import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.block.entity.HopperBlockEntity;
 
 /**
- * Any job: when the worker's pockets are full, or it has run out of work, carry what it has to
- * the nearest storage block in its hut. Keeps some seeds for replanting.
+ * Any job: carry what the worker has to its chest.
+ *  - Pockets full: store the harvest, keeping some seeds (for replanting) and its bone meal, and get back to work.
+ *  - All its work done (WorkerEntity.isWorkDone: nothing left to harvest, plant, till or bone-meal, and nothing
+ *    in the chest that would change that): put everything away, seeds and bone meal too.
  */
 public class DepositItemsGoal extends StorageTripGoal {
     private static final int KEEP_SEEDS = 16;         // of each kind of seed
@@ -32,7 +34,10 @@ public class DepositItemsGoal extends StorageTripGoal {
     // Keep working until the pockets are full or there's nothing left to do.
     @Override
     protected boolean needsTrip() {
-        return this.hasItemsToStore() && (!this.worker.hasFreeSlot() || this.worker.isIdle());
+        if (!this.worker.hasFreeSlot()) {
+            return this.hasItemsToStore(false);
+        }
+        return this.worker.isWorkDone() && this.hasItemsToStore(true);
     }
 
     @Override
@@ -42,7 +47,7 @@ public class DepositItemsGoal extends StorageTripGoal {
 
     @Override
     protected int useStorage(Container container) {
-        return this.storeItems(container) ? RETRY_TICKS : FULL_RETRY_TICKS;
+        return this.storeItems(container, this.worker.isWorkDone()) ? RETRY_TICKS : FULL_RETRY_TICKS;
     }
 
     @Override
@@ -50,18 +55,18 @@ public class DepositItemsGoal extends StorageTripGoal {
         return RETRY_TICKS;
     }
 
-    private boolean hasItemsToStore() {
+    private boolean hasItemsToStore(boolean everything) {
         Map<Item, Integer> seedsKept = new HashMap<>();
         for (ItemStack stack : this.worker.getInventory().getItems()) {
-            if (!stack.isEmpty() && amountToStore(stack, seedsKept) > 0) {
+            if (!stack.isEmpty() && amountToStore(stack, seedsKept, everything) > 0) {
                 return true;
             }
         }
         return false;
     }
 
-    /** Moves everything except kept seeds into the container. Returns true if anything was stored. */
-    private boolean storeItems(Container container) {
+    /** Moves everything (or everything but the seeds and bone meal it keeps) into the container. Returns true if anything was stored. */
+    private boolean storeItems(Container container, boolean everything) {
         SimpleContainer inventory = this.worker.getInventory();
         Map<Item, Integer> seedsKept = new HashMap<>();
         boolean storedAny = false;
@@ -70,7 +75,7 @@ public class DepositItemsGoal extends StorageTripGoal {
             if (stack.isEmpty()) {
                 continue;
             }
-            int toStore = amountToStore(stack, seedsKept);
+            int toStore = amountToStore(stack, seedsKept, everything);
             if (toStore <= 0) {
                 continue;
             }
@@ -90,8 +95,14 @@ public class DepositItemsGoal extends StorageTripGoal {
         return storedAny;
     }
 
-    /** How much of this stack to put away. Seeds: keep up to KEEP_SEEDS of each kind. */
-    private static int amountToStore(ItemStack stack, Map<Item, Integer> seedsKept) {
+    /** How much of this stack to put away. Unless it's everything: keep up to KEEP_SEEDS of each seed, and all bone meal. */
+    private static int amountToStore(ItemStack stack, Map<Item, Integer> seedsKept, boolean everything) {
+        if (everything) {
+            return stack.getCount();
+        }
+        if (WorkerEntity.isBoneMeal(stack)) {
+            return 0;
+        }
         if (!WorkerEntity.isPlantableSeed(stack)) {
             return stack.getCount();
         }

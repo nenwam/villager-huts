@@ -4,12 +4,11 @@ import io.github.nenwam.villagerhuts.entity.WorkerEntity;
 import io.github.nenwam.villagerhuts.job.WorkerJob;
 import net.minecraft.network.chat.Component;
 import net.minecraft.world.Container;
-import net.minecraft.world.item.ItemStack;
 
 /**
- * Farmer: out of seeds, with empty farmland to plant and nothing ripe to harvest? Walk to the
- * hut's storage and take seeds (up to a stack, and no more than there are empty spots).
- * This is how a new farm gets started: put seeds in the hut chest.
+ * Farmer: out of seeds, with empty farmland to plant and nothing ripe to harvest? Walk to its
+ * chest and take seeds (up to a stack, and no more than there are empty spots).
+ * This is how a new farm gets started: put seeds in the farmer's chest.
  */
 public class FetchSeedsGoal extends StorageTripGoal {
     private static final int MAX_SEEDS = 64;
@@ -44,31 +43,7 @@ public class FetchSeedsGoal extends StorageTripGoal {
 
     @Override
     protected int useStorage(Container container) {
-        int wanted = Math.min(MAX_SEEDS, this.worker.getEmptyFarmland());
-        int taken = 0;
-        for (int i = 0; i < container.getContainerSize() && taken < wanted; i++) {
-            ItemStack stack = container.getItem(i);
-            if (!WorkerEntity.isPlantableSeed(stack)) {
-                continue;
-            }
-            ItemStack part = container.removeItem(i, Math.min(stack.getCount(), wanted - taken));
-            int partCount = part.getCount();
-            ItemStack rest = this.worker.getInventory().addItem(part);
-            taken += partCount - rest.getCount();
-            if (!rest.isEmpty()) { // pockets full: put the rest back and stop
-                ItemStack inSlot = container.getItem(i);
-                if (inSlot.isEmpty()) {
-                    container.setItem(i, rest);
-                } else {
-                    inSlot.grow(rest.getCount());
-                }
-                break;
-            }
-        }
-        container.setChanged();
-        if (taken > 0) {
-            this.worker.markWorked(); // so it doesn't count as idle and put the seeds straight back
-        }
+        int taken = this.take(container, WorkerEntity::isPlantableSeed, Math.min(MAX_SEEDS, this.worker.getEmptyFarmland()));
         return taken > 0 ? 20 : CHECK_TICKS;
     }
 
