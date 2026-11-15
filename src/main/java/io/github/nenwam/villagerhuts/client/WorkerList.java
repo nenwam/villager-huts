@@ -6,14 +6,12 @@ import java.util.Locale;
 import java.util.Map;
 
 import io.github.nenwam.villagerhuts.network.WorkerInfo;
-import io.github.nenwam.villagerhuts.registry.ModItems;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.ContainerObjectSelectionList;
 import net.minecraft.client.gui.components.events.GuiEventListener;
 import net.minecraft.client.gui.narration.NarratableEntry;
-import net.minecraft.client.renderer.RenderPipelines;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.locale.Language;
 import net.minecraft.network.chat.Component;
@@ -28,16 +26,13 @@ import net.minecraft.world.item.Items;
  * button that opens its details page and an eye toggle for its farm and chest highlight; under those, its
  * status (up to two lines) and a row of item slots for what it collected.
  */
-class WorkerList extends ContainerObjectSelectionList<WorkerList.Row> {
+class WorkerList extends PanelList<WorkerList.Row> {
     // Row heights include 2px of list padding above and below, plus a little space between workers.
     private static final int ROW_GAP = 6;
     private static final int STATUS_LINES = 2; // longer statuses are cut short (the details page has room for all of it)
-    private static final int SCROLLBAR_WIDTH = 14;
-    private static final Identifier SCROLLER = Identifier.withDefaultNamespace("container/creative_inventory/scroller");
-    private static final Identifier SCROLLER_DISABLED = Identifier.withDefaultNamespace("container/creative_inventory/scroller_disabled");
 
     WorkerList(Minecraft minecraft) {
-        super(minecraft, 0, 0, 0, rowHeight(1, false));
+        super(minecraft, rowHeight(1, false));
     }
 
     void setWorkers(List<WorkerInfo> workers) {
@@ -53,50 +48,6 @@ class WorkerList extends ContainerObjectSelectionList<WorkerList.Row> {
     // The worker's slot, its status lines, and its collected items (if any).
     private static int rowHeight(int statusLines, boolean items) {
         return 18 + 2 + statusLines * NativeStyle.LINE + (items ? 19 : 0) + 4 + ROW_GAP;
-    }
-
-    @Override
-    public int getRowLeft() {
-        return this.getX();
-    }
-
-    @Override
-    public int getRowWidth() {
-        return this.getWidth() - SCROLLBAR_WIDTH - 3;
-    }
-
-    // ---------------------------------------------------------------- creative-inventory style scrollbar
-
-    @Override
-    public int scrollbarWidth() {
-        return SCROLLBAR_WIDTH;
-    }
-
-    @Override
-    protected int scrollBarX() {
-        return this.getRight() - SCROLLBAR_WIDTH;
-    }
-
-    @Override
-    protected int scrollerHeight() {
-        return 15;
-    }
-
-    @Override
-    protected void extractScrollbar(GuiGraphicsExtractor graphics, int mouseX, int mouseY) {
-        int x = this.scrollBarX();
-        NativeStyle.inset(graphics, x, this.getY(), SCROLLBAR_WIDTH, this.getHeight());
-        int y = Math.min(this.scrollBarY(), this.getBottom() - 15);
-        graphics.blitSprite(RenderPipelines.GUI_TEXTURED, this.scrollable() ? SCROLLER : SCROLLER_DISABLED, x + 1, y, 12, 15);
-    }
-
-    // The panel draws its own background; skip the full-screen list styling.
-    @Override
-    protected void extractListBackground(GuiGraphicsExtractor graphics) {
-    }
-
-    @Override
-    protected void extractListSeparators(GuiGraphicsExtractor graphics) {
     }
 
     // ---------------------------------------------------------------- rows
@@ -115,10 +66,10 @@ class WorkerList extends ContainerObjectSelectionList<WorkerList.Row> {
             this.areaToggle = new SlotToggle(button -> ClientWorkers.toggleHighlight(info.id()),
                     () -> ClientWorkers.isShown(info.id()), () -> ClientWorkers.color(info.number()),
                     Component.translatable("gui.villagerhuts.panel.show"), Component.translatable("gui.villagerhuts.panel.hide"));
-            this.areaToggle.active = info.farm().isPresent() || info.storage().isPresent();
+            this.areaToggle.active = info.farm().isPresent() || info.storage().isPresent() || info.bed().isPresent();
             this.infoButton = new SlotButton(new ItemStack(Items.BOOK), Component.translatable("gui.villagerhuts.panel.details"),
                     button -> WorkerPanel.showDetails(info.id()));
-            this.jobIcon = new ItemStack(info.job().equals("farmer") ? Items.IRON_HOE : ModItems.FARMER.get());
+            this.jobIcon = WorkerDetails.icon(info);
             List<Map.Entry<Identifier, Integer>> items = new ArrayList<>(info.collected().entrySet());
             items.sort(Map.Entry.<Identifier, Integer>comparingByValue().reversed());
             for (Map.Entry<Identifier, Integer> item : items) {

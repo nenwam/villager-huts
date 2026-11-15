@@ -11,16 +11,22 @@ import io.github.nenwam.villagerhuts.farm.FarmArea;
 import io.github.nenwam.villagerhuts.farm.FarmPlan;
 import io.github.nenwam.villagerhuts.network.AssignModePayload;
 import io.github.nenwam.villagerhuts.registry.ModTags;
+import io.github.nenwam.villagerhuts.roster.WorkerRoster;
 import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.sounds.SoundEvents;
 import net.minecraft.sounds.SoundSource;
+import net.minecraft.tags.BlockTags;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.InteractionResult;
+import net.minecraft.world.level.BlockGetter;
 import net.minecraft.world.level.Level;
+import net.minecraft.world.level.block.AbstractBedBlock;
 import net.minecraft.world.level.block.entity.HopperBlockEntity;
+import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.block.state.properties.BedPart;
 import net.minecraft.world.level.levelgen.structure.BoundingBox;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.fml.common.EventBusSubscriber;
@@ -31,16 +37,19 @@ import net.neoforged.neoforge.network.PacketDistributor;
 import org.jspecify.annotations.Nullable;
 
 /**
- * Giving a worker its farm and its chest. Right-click your worker with an empty hand to select it,
- * then right-click the farm (any block on or beside its farmland) or the chest (or barrel).
- * Or shift + right-click it, then right-click the ground: it makes a new farm there (see FarmPlan).
+ * Giving a worker its farm, its chest and its bed. Right-click your worker with an empty hand to select it,
+ * then right-click the farm (any block on or beside its farmland), the chest (or barrel), or a bed.
+ * Or shift + right-click a farmer, then right-click the ground: it makes a new farm there (see FarmPlan).
+ * A fighter gets a post instead of a farm: right-click any block (that isn't a chest or a bed) and it stands
+ * guard there, over Config fighterGuardRadius blocks all round.
  * While a worker is selected, the client previews what you're looking at (client/AssignPreview), and
  * your next right-click on a block goes here instead of to the block, so the chest doesn't open.
  * Right-click the worker again to cancel; the selection also runs out after a minute.
  *
  * Limits (Config screen): a farm up to farmerMaxFarmSize blocks across (a new one, farmerNewFarmSize),
- * within farmerMaxFarmDistance blocks of the worker; a chest within farmerMaxFarmDistance blocks of the
- * worker's farm (or of the worker, if it doesn't have a farm yet). Giving it any of these sets it working.
+ * within farmerMaxFarmDistance blocks of the worker (so is a post); a chest or bed within farmerMaxFarmDistance
+ * blocks of the worker's farm or post (or of the worker, if it has neither yet). A bed can only be one worker's.
+ * Giving it any of these sets it working.
  */
 @EventBusSubscriber(modid = VillagerHuts.MODID)
 public final class WorkerAssigning {
@@ -58,6 +67,8 @@ public final class WorkerAssigning {
      * make a new farm), or cancel if it was already selected that way.
      */
     public static void toggle(ServerPlayer player, WorkerEntity worker, boolean newFarm) {
+        boolean fighter = worker.getJob().isFighter();
+        newFarm = newFarm && !fighter; // fighters don't farm
         Selection current = selection(player);
         if (current != null && current.worker().equals(worker.getUUID()) && current.newFarm() == newFarm) {
             clear(player);
@@ -67,20 +78,49 @@ public final class WorkerAssigning {
         SELECTED.put(player.getUUID(), new Selection(worker.getUUID(), newFarm, player.level().getGameTime() + TIMEOUT_TICKS));
         Component name = worker.hasCustomName() ? worker.getCustomName() : worker.getJob().displayName();
         PacketDistributor.sendToPlayer(player, new AssignModePayload(Optional.of(new AssignModePayload.Selected(
-                worker.getUUID(), name, newFarm, Optional.ofNullable(worker.getFarmArea()), Config.FARMER_MAX_FARM_SIZE.getAsInt(),
-                Config.FARMER_NEW_FARM_SIZE.getAsInt(), Config.FARMER_MAX_FARM_DISTANCE.getAsInt(), TIMEOUT_TICKS))));
+                worker.getUUID(), name, newFarm, Optional.ofNullable(worker.getWorkArea()), Config.FARMER_MAX_FARM_SIZE.getAsInt(),
+                Config.FARMER_NEW_FARM_SIZE.getAsInt(), Config.FARMER_MAX_FARM_DISTANCE.getAsInt(), TIMEOUT_TICKS,
+                fighter, Config.FIGHTER_GUARD_RADIUS.getAsInt()))));
         player.level().playSound(null, worker.blockPosition(), SoundEvents.VILLAGER_YES, SoundSource.NEUTRAL, 1.0F, 1.0F);
     }
 
-    /** Gives the worker the chest at this block, or else the farm around it. Changes nothing if it can't have it. */
+    /**
+     * Gives the worker the bed or chest at this block, or else the farm around it (a fighter: a post here).
+     * Changes nothing if it can't have it.
+     */
     public static Outcome assign(ServerLevel level, WorkerEntity worker, BlockPos clicked) {
         int maxDistance = Config.FARMER_MAX_FARM_DISTANCE.getAsInt();
+        if (isBed(level, clicked)) {
+            BlockPos head = bedHead(level, clicked);
+            if (!isWithin(chestAnchor(worker.getWorkArea(), worker.blockPosition()), head, maxDistance)) {
+                return new Outcome(false, Component.translatable("message.villagerhuts.bed_too_far", maxDistance));
+            }
+            WorkerRoster roster = WorkerRoster.get(level.getServer());
+            Optional<UUID> other = roster.bedOwner(level.dimension(), head, worker.getUUID());
+            if (other.isPresent()) {
+                Component name = roster.entry(other.get()).flatMap(WorkerRoster.Entry::customName).<Component>map(Component::literal)
+                        .orElseGet(() -> Component.translatable("gui.villagerhuts.another_worker"));
+                return new Outcome(false, Component.translatable("message.villagerhuts.bed_taken", name));
+            }
+            worker.assignBed(head);
+            return new Outcome(true, Component.translatable("message.villagerhuts.bed_assigned"));
+        }
         if (isStorage(level, clicked)) {
-            if (!isWithin(chestAnchor(worker.getFarmArea(), worker.blockPosition()), clicked, maxDistance)) {
+            if (!isWithin(chestAnchor(worker.getWorkArea(), worker.blockPosition()), clicked, maxDistance)) {
                 return new Outcome(false, Component.translatable("message.villagerhuts.chest_too_far", maxDistance));
             }
             worker.assignStorage(clicked);
-            return new Outcome(true, Component.translatable("message.villagerhuts.chest_assigned"));
+            return new Outcome(true, Component.translatable(worker.getJob().isFighter()
+                    ? "message.villagerhuts.fighter_chest_assigned" : "message.villagerhuts.chest_assigned"));
+        }
+        if (worker.getJob().isFighter()) {
+            BlockPos post = postAt(level, clicked);
+            if (!isWithin(worker.blockPosition(), post, maxDistance)) {
+                return new Outcome(false, Component.translatable("message.villagerhuts.post_too_far", maxDistance));
+            }
+            worker.assignGuardPost(post);
+            int size = 2 * Config.FIGHTER_GUARD_RADIUS.getAsInt() + 1;
+            return new Outcome(true, Component.translatable("message.villagerhuts.post_assigned", size, size));
         }
         FarmArea area = FarmArea.find(level, clicked, Config.FARMER_MAX_FARM_SIZE.getAsInt());
         BoundingBox box = area.box();
@@ -116,7 +156,23 @@ public final class WorkerAssigning {
         return level.getBlockState(pos).is(ModTags.WORKER_STORAGE) && HopperBlockEntity.getContainerAt(level, pos) != null;
     }
 
-    /** Where a chest's distance is measured from: the middle of the worker's farm, or the worker if it has none. */
+    public static boolean isBed(BlockGetter level, BlockPos pos) {
+        BlockState state = level.getBlockState(pos);
+        return state.is(BlockTags.BEDS) && state.getBlock() instanceof AbstractBedBlock;
+    }
+
+    /** The head end of the bed at pos (where a sleeper's head goes, and where beds are tracked). */
+    public static BlockPos bedHead(BlockGetter level, BlockPos pos) {
+        BlockState state = level.getBlockState(pos);
+        return state.getValue(AbstractBedBlock.PART) == BedPart.HEAD ? pos : pos.relative(AbstractBedBlock.getConnectedDirection(state));
+    }
+
+    /** The post a fighter gets for this clicked block: the spot to stand on it (or the block itself, if it's grass or air). */
+    public static BlockPos postAt(BlockGetter level, BlockPos clicked) {
+        return level.getBlockState(clicked).getCollisionShape(level, clicked).isEmpty() ? clicked : clicked.above();
+    }
+
+    /** Where a chest's (or bed's) distance is measured from: the middle of the worker's farm or guard area, or the worker if it has neither. */
     public static BlockPos chestAnchor(@Nullable BoundingBox farm, BlockPos worker) {
         return farm != null ? farm.getCenter() : worker;
     }
@@ -145,6 +201,11 @@ public final class WorkerAssigning {
             return;
         }
         WorkerEntity worker = level.getEntity(selection.worker()) instanceof WorkerEntity found && found.isAlive() ? found : null;
+        if (worker != null && !worker.canCommand(player)) { // its owner stopped sharing it with them meanwhile
+            clear(player);
+            player.sendOverlayMessage(Component.translatable("message.villagerhuts.no_longer_shared"));
+            return;
+        }
         if (worker == null) {
             clear(player);
             player.sendOverlayMessage(Component.translatable("message.villagerhuts.assign_worker_missing"));
@@ -154,7 +215,8 @@ public final class WorkerAssigning {
         player.sendOverlayMessage(outcome.message());
         if (outcome.assigned()) {
             clear(player);
-            level.playSound(null, event.getPos(), SoundEvents.VILLAGER_WORK_FARMER, SoundSource.NEUTRAL, 1.0F, 1.0F);
+            level.playSound(null, event.getPos(), worker.getJob().isFighter() ? SoundEvents.VILLAGER_WORK_WEAPONSMITH
+                    : SoundEvents.VILLAGER_WORK_FARMER, SoundSource.NEUTRAL, 1.0F, 1.0F);
         }
         // Not assigned: stay selected, so the player can try another spot.
     }

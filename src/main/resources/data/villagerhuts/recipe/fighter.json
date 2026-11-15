@@ -1,0 +1,11 @@
+{
+  "type": "minecraft:crafting_shapeless",
+  "ingredients": [
+    "minecraft:grindstone",
+    "minecraft:target",
+    "minecraft:golden_carrot"
+  ],
+  "result": {
+    "id": "villagerhuts:fighter"
+  }
+}

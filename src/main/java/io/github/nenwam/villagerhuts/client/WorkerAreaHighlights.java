@@ -30,7 +30,7 @@ import net.neoforged.neoforge.client.event.ExtractLevelRenderStateEvent;
 import net.neoforged.neoforge.client.event.SubmitCustomGeometryEvent;
 
 /**
- * For each worker whose area is shown (from the worker panel): outlines of its farm and its chest in
+ * For each worker whose area is shown (from the worker panel): outlines of its farm, its chest and its bed in
  * the worker's color, its number floating above each, and its number above the worker's head.
  * Numbers face the camera, show through terrain, and grow with distance so they stay readable.
  */
@@ -82,6 +82,13 @@ public final class WorkerAreaHighlights {
                 boxes.add(new Box(chest, color));
                 labels.add(new Label(new Vec3(chest.minX() + chest.getXSpan() / 2.0, chest.maxY() + 1 + CHEST_LABEL_HEIGHT,
                         chest.minZ() + chest.getZSpan() / 2.0), color, number, HEAD_LABEL_SCALE));
+            }
+
+            if (worker.bed().isPresent()) {
+                BoundingBox bed = AssignPreview.bedBox(event.getLevel(), worker.bed().get());
+                boxes.add(new Box(bed, color));
+                labels.add(new Label(new Vec3(bed.minX() + bed.getXSpan() / 2.0, bed.maxY() + 1 + CHEST_LABEL_HEIGHT,
+                        bed.minZ() + bed.getZSpan() / 2.0), color, number, HEAD_LABEL_SCALE));
             }
 
             // Above the worker's head (only while it's near enough to be loaded on your side).

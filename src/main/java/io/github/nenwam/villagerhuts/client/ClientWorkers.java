@@ -1,7 +1,6 @@
 package io.github.nenwam.villagerhuts.client;
 
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -12,6 +11,7 @@ import com.mojang.blaze3d.platform.InputConstants;
 import io.github.nenwam.villagerhuts.VillagerHuts;
 import io.github.nenwam.villagerhuts.network.RenameWorkerPayload;
 import io.github.nenwam.villagerhuts.network.RequestWorkersPayload;
+import io.github.nenwam.villagerhuts.network.ShareWorkerPayload;
 import io.github.nenwam.villagerhuts.network.WorkerCommandPayload;
 import io.github.nenwam.villagerhuts.network.WorkerInfo;
 import io.github.nenwam.villagerhuts.network.WorkerListPayload;
@@ -30,8 +30,8 @@ import net.neoforged.neoforge.client.network.event.RegisterClientPayloadHandlers
 import org.jspecify.annotations.Nullable;
 
 /**
- * The client's copy of your worker list (from the server), which areas are highlighted,
- * worker colors, and the "open worker management" key.
+ * The client's copy of your worker list (from the server: your workers, then the ones shared with you),
+ * which areas are highlighted, worker colors, and the "open worker management" key.
  */
 @EventBusSubscriber(modid = VillagerHuts.MODID, value = Dist.CLIENT)
 public final class ClientWorkers {
@@ -72,6 +72,11 @@ public final class ClientWorkers {
     /** Asks the server to rename one of your workers (an empty name removes its name). It replies with a new list. */
     public static void rename(UUID worker, String name) {
         ClientPacketDistributor.sendToServer(new RenameWorkerPayload(worker, name));
+    }
+
+    /** Asks the server to share a worker with a player, stop sharing it, or give it to them. It replies with a new list. */
+    public static void share(UUID worker, UUID player, ShareWorkerPayload.Action action) {
+        ClientPacketDistributor.sendToServer(new ShareWorkerPayload(worker, player, action));
     }
 
     /** Called with each new list (the worker panel uses this to refresh). */
@@ -119,8 +124,7 @@ public final class ClientWorkers {
     @SubscribeEvent
     static void registerPayloadHandler(RegisterClientPayloadHandlersEvent event) {
         event.register(WorkerListPayload.TYPE, (payload, context) -> {
-            List<WorkerInfo> sorted = new ArrayList<>(payload.workers());
-            sorted.sort(Comparator.comparingInt(WorkerInfo::number));
+            List<WorkerInfo> sorted = new ArrayList<>(payload.workers()); // the server's order: yours first
             workers = List.copyOf(sorted);
             // Workers that died (no longer listed) lose their highlight.
             highlighted.removeIf(id -> sorted.stream().noneMatch(w -> w.id().equals(id)));

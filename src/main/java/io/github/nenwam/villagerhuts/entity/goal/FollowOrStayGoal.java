@@ -10,11 +10,12 @@ import net.minecraft.world.phys.Vec3;
 
 /**
  * Orders from the worker panel (a new worker starts on Follow).
- *  - Follow: keep close to the owner, catching up by teleporting if it falls far behind (like a pet).
- *    If the owner isn't in this world, it waits where it is.
+ *  - Follow: keep close to whoever gave the order (its owner, or a player it's shared with), catching up by
+ *    teleporting if it falls far behind (like a pet). If they aren't in this world, it waits where it is.
  *  - Stay: stand still, walking back to the spot if it gets pushed or chased away.
  * While it runs it holds the legs, so work, wandering and sheltering don't move the worker.
- * (Running from monsters and panicking come first.)
+ * (Running from monsters and panicking come first, and so does fighting: a warrior or ranger following you
+ * fights what comes near you, and one told to stay fights what comes near its spot, then goes back.)
  */
 public class FollowOrStayGoal extends Goal {
     private static final double START_FOLLOWING = 6.0;  // blocks from the owner
@@ -68,7 +69,7 @@ public class FollowOrStayGoal extends Goal {
     }
 
     private void follow() {
-        Player owner = this.worker.getOwner();
+        Player owner = this.worker.getFollowTarget();
         if (owner == null || owner.isSpectator()) {
             this.worker.getNavigation().stop();
             return;

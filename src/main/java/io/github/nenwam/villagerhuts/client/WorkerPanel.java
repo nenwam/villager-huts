@@ -40,11 +40,13 @@ import org.jspecify.annotations.Nullable;
  * or left if there's no room). Opened and closed with the Workers button; stays open between
  * inventory openings. The list page shows your workers with live status, days worked and what
  * they've collected, plus buttons to highlight their farms and chests in the world; each worker's book
- * button opens its details page (back arrow returns to the list). On the details page:
+ * button opens its details page (back arrow returns to the list). Workers shared with you are listed too,
+ * after your own. On the details page:
  *  - the name tag button renames the worker: type a name, then Enter (or click the name tag again) saves
  *    and Escape cancels;
  *  - beside its slot, its orders (work, follow you, stay put; the one it's on is in its color), and on the
- *    right a button to take its tool back. These only work while the worker is near enough to be loaded.
+ *    right a button to take its tool back (owner only). These only work while the worker is near enough to be loaded;
+ *  - the player-head button opens its sharing page (see WorkerSharing); the back arrow returns to the details.
  */
 @EventBusSubscriber(modid = VillagerHuts.MODID, value = Dist.CLIENT)
 public final class WorkerPanel {
@@ -61,15 +63,28 @@ public final class WorkerPanel {
 
     private static boolean open;
     private static @Nullable UUID selected; // worker whose details page is showing, or null for the list
+    private static boolean sharingPage;     // showing the selected worker's sharing page instead of its details
     private static @Nullable UUID renaming; // worker whose name is being typed, or null
+    private static @Nullable Boolean fighterButtons; // whether the order and tool buttons are set up for a fighter
     private static @Nullable Widgets current;
 
     private record Widgets(InventoryScreen screen, WorkerList list, Button showAll, WorkerDetails details, Button back,
-                           Button rename, EditBox nameBox, Button detailToggle, List<Button> orders, Button takeTool, PanelArea area) {}
+                           Button rename, EditBox nameBox, Button detailToggle, List<Button> orders, Button takeTool,
+                           Button sharing, WorkerSharing sharingList, PanelArea area) {}
 
     /** Opens a worker's details page (from its book button). */
     public static void showDetails(@Nullable UUID worker) {
         selected = worker;
+        sharingPage = false;
+    }
+
+    // The back arrow: from the sharing page to the details, from the details to the list.
+    private static void back() {
+        if (sharingPage) {
+            sharingPage = false;
+        } else {
+            showDetails(null);
+        }
     }
 
     public static boolean isOpen() {
@@ -96,7 +111,7 @@ public final class WorkerPanel {
         Button showAll = new SlotToggle(button -> ClientWorkers.toggleShowAll(), ClientWorkers::isShowingAll, () -> SHOW_ALL_COLOR,
                 Component.translatable("gui.villagerhuts.panel.show_all"), Component.translatable("gui.villagerhuts.panel.hide_all"));
         WorkerDetails details = new WorkerDetails();
-        Button back = new ImageButton(12, 17, BACK_SPRITES, button -> showDetails(null), Component.translatable("gui.villagerhuts.panel.back"));
+        Button back = new ImageButton(12, 17, BACK_SPRITES, button -> back(), Component.translatable("gui.villagerhuts.panel.back"));
         back.setTooltip(Tooltip.create(Component.translatable("gui.villagerhuts.panel.back")));
         Button detailToggle = new SlotToggle(button -> { if (selected != null) ClientWorkers.toggleHighlight(selected); },
                 () -> selected != null && ClientWorkers.isShown(selected), WorkerPanel::selectedColor,
@@ -117,6 +132,9 @@ public final class WorkerPanel {
                 orderButton(Items.ARMOR_STAND, "gui.villagerhuts.panel.order_stay", WorkerEntity.Order.STAY));
         Button takeTool = new SlotButton(new ItemStack(Items.IRON_HOE), Component.translatable("gui.villagerhuts.panel.take_tool"),
                 button -> { if (selected != null) ClientWorkers.command(selected, WorkerCommandPayload.Command.TAKE_TOOL); });
+        Button sharing = new SlotButton(new ItemStack(Items.PLAYER_HEAD), Component.translatable("gui.villagerhuts.panel.sharing"),
+                button -> sharingPage = true);
+        WorkerSharing sharingList = new WorkerSharing(Minecraft.getInstance());
         PanelArea area = new PanelArea();
         event.addListener(list);
         event.addListener(showAll);
@@ -127,10 +145,14 @@ public final class WorkerPanel {
         event.addListener(detailToggle);
         orders.forEach(event::addListener);
         event.addListener(takeTool);
+        event.addListener(sharing);
+        event.addListener(sharingList);
         event.addListener(area); // last: only gets clicks the list and buttons didn't use
-        Widgets widgets = new Widgets(screen, list, showAll, details, back, rename, nameBox, detailToggle, orders, takeTool, area);
+        Widgets widgets = new Widgets(screen, list, showAll, details, back, rename, nameBox, detailToggle, orders, takeTool,
+                sharing, sharingList, area);
         current = widgets;
         renaming = null;
+        fighterButtons = null;
         layout(widgets);
         list.setWorkers(ClientWorkers.workers());
         ClientWorkers.setListener(() -> {
@@ -164,6 +186,12 @@ public final class WorkerPanel {
         ScreenRectangle panel = widgets.area().getRectangle();
         NativeStyle.panel(graphics, panel.left(), panel.top(), panel.width(), panel.height());
         WorkerInfo details = widgets.details().info();
+        if (details != null && sharingPage) {
+            int titleX = widgets.back().getRight() + 4;
+            Component title = Component.translatable("gui.villagerhuts.sharing.title", WorkerDetails.name(details));
+            graphics.text(font, WorkerList.fit(font, title, panel.right() - PADDING - titleX), titleX, panel.top() + 9, NativeStyle.LABEL, false);
+            return;
+        }
         if (details != null) {
             if (renaming == null) { // while renaming, the name box sits here instead
                 int titleX = widgets.back().getRight() + 4;
@@ -200,6 +228,8 @@ public final class WorkerPanel {
             widgets.detailToggle().mouseReleased(mouse);
             widgets.orders().forEach(button -> button.mouseReleased(mouse));
             widgets.takeTool().mouseReleased(mouse);
+            widgets.sharing().mouseReleased(mouse);
+            widgets.sharingList().mouseReleased(mouse);
             widgets.screen().setDragging(false);
             event.setCanceled(true);
         }
@@ -215,6 +245,10 @@ public final class WorkerPanel {
         }
         if (widgets.list().visible) {
             widgets.list().mouseScrolled(event.getMouseX(), event.getMouseY(), event.getScrollDeltaX(), event.getScrollDeltaY());
+        } else if (widgets.sharingList().visible) {
+            widgets.sharingList().mouseScrolled(event.getMouseX(), event.getMouseY(), event.getScrollDeltaX(), event.getScrollDeltaY());
+        } else if (widgets.details().visible) {
+            widgets.details().scrollBy(event.getScrollDeltaY());
         }
         event.setCanceled(true);
     }
@@ -272,6 +306,7 @@ public final class WorkerPanel {
             widgets.area().setRectangle(width, height, x, top);
             widgets.list().updateSizeAndPosition(width - 2 * PADDING, height - HEADER - PADDING, x + PADDING, top + HEADER);
             widgets.details().setRectangle(width - 2 * PADDING, height - HEADER - PADDING, x + PADDING, top + HEADER);
+            widgets.sharingList().updateSizeAndPosition(width - 2 * PADDING, height - HEADER - PADDING, x + PADDING, top + HEADER);
         }
         widgets.showAll().setPosition(x + width - PADDING - 18, top + 4);
         widgets.detailToggle().setPosition(x + width - PADDING - 18, top + 4);
@@ -281,16 +316,18 @@ public final class WorkerPanel {
             widgets.orders().get(i).setPosition(x + PADDING + 21 + i * 20, top + HEADER);
         }
         widgets.takeTool().setPosition(x + width - PADDING - 18, top + HEADER);
+        widgets.sharing().setPosition(x + width - PADDING - 38, top + HEADER);
         int nameX = widgets.back().getRight() + 3;
         widgets.nameBox().setRectangle(Math.max(0, widgets.rename().getX() - 3 - nameX), 14, nameX, top + 6);
 
         // Which page: a worker's details, or the list. (Back to the list if that worker is gone.)
         widgets.details().show(selected);
         if (selected != null && widgets.details().info() == null) {
-            selected = null;
+            showDetails(null); // gone (or no longer shared with you)
             widgets.details().show(null);
         }
-        boolean detailsPage = open && selected != null;
+        boolean detailsPage = open && selected != null && !sharingPage;
+        boolean sharingShown = open && selected != null && sharingPage;
         boolean listPage = open && selected == null;
         // Clicking anywhere else, or leaving the page, saves the name being typed.
         if (renaming != null && (!renaming.equals(selected) || !detailsPage || !widgets.nameBox().isFocused())) {
@@ -299,20 +336,50 @@ public final class WorkerPanel {
         widgets.list().visible = listPage;
         widgets.showAll().visible = listPage;
         widgets.details().visible = detailsPage;
-        widgets.back().visible = detailsPage;
+        widgets.back().visible = detailsPage || sharingShown;
         widgets.rename().visible = detailsPage;
         widgets.nameBox().visible = detailsPage && renaming != null;
         widgets.detailToggle().visible = detailsPage;
         WorkerInfo shown = widgets.details().info();
-        widgets.detailToggle().active = detailsPage && shown != null && (shown.farm().isPresent() || shown.storage().isPresent());
+        widgets.detailToggle().active = detailsPage && shown != null && (shown.farm().isPresent() || shown.storage().isPresent() || shown.bed().isPresent());
         boolean nearby = shown != null && shown.loaded();
         for (Button order : widgets.orders()) {
             order.visible = detailsPage;
             order.active = nearby;
         }
-        widgets.takeTool().visible = detailsPage && shown != null && !shown.job().equals(WorkerJob.NONE.id());
+        if (shown != null) {
+            setUpButtons(widgets, shown);
+        }
+        widgets.takeTool().visible = detailsPage && shown != null && shown.yours() && WorkerJob.byId(shown.job()).hasTool();
         widgets.takeTool().active = nearby;
+        widgets.sharing().visible = detailsPage;
+        widgets.sharingList().visible = sharingShown;
+        if (sharingShown) {
+            widgets.sharingList().refresh(shown);
+        }
         widgets.area().visible = open;
+    }
+
+    // Farmers and fighters word their Work order differently, and the tool button shows the worker's own tool.
+    private static void setUpButtons(Widgets widgets, WorkerInfo shown) {
+        boolean fighter = WorkerJob.byId(shown.job()).isFighter();
+        if (widgets.takeTool() instanceof SlotButton takeTool) {
+            takeTool.setIcon(shown.tool().isEmpty() ? new ItemStack(Items.IRON_HOE) : shown.tool());
+        }
+        if (Boolean.valueOf(fighter).equals(fighterButtons)) {
+            return;
+        }
+        fighterButtons = fighter;
+        if (widgets.orders().getFirst() instanceof SlotButton work) {
+            work.setIcon(new ItemStack(fighter ? Items.SHIELD : Items.WHEAT));
+            setHint(work, Component.translatable(fighter ? "gui.villagerhuts.panel.order_guard" : "gui.villagerhuts.panel.order_work"));
+        }
+        setHint(widgets.takeTool(), Component.translatable(fighter ? "gui.villagerhuts.panel.take_weapon" : "gui.villagerhuts.panel.take_tool"));
+    }
+
+    private static void setHint(Button button, Component hint) {
+        button.setMessage(hint);
+        button.setTooltip(Tooltip.create(hint));
     }
 
     // One of the order buttons beside the worker's slot: shown in the worker's color while it's on that order.

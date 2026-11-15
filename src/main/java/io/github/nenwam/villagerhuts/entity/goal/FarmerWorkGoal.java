@@ -45,6 +45,9 @@ import org.jspecify.annotations.Nullable;
  * After each look over the farm it tells the worker whether all its work is done (DepositItemsGoal then
  * puts everything away).
  *
+ * Harvests count toward the worker's daily limit (WorkerEntity.takeHarvest): one that would take it over the
+ * limit isn't made, and the worker is done for the day (RestGoal) until the next morning.
+ *
  * The farmer walks onto the crop's own spot (via a route that really gets there, e.g. through
  * the gap in the fence) and only works when nothing solid is in between, so it never
  * harvests through a fence or wall. For water it stands beside the spot instead.
@@ -78,7 +81,7 @@ public class FarmerWorkGoal extends Goal implements DescribesActivity {
 
     @Override
     public boolean canUse() {
-        if (this.worker.getJob() != WorkerJob.FARMER || this.worker.getFarmArea() == null) {
+        if (this.worker.getJob() != WorkerJob.FARMER || this.worker.getFarmArea() == null || this.worker.isDoneForToday()) {
             return false;
         }
         // Pockets full: stop and let DepositItemsGoal empty them first.
@@ -109,7 +112,8 @@ public class FarmerWorkGoal extends Goal implements DescribesActivity {
 
     @Override
     public boolean canContinueToUse() {
-        return this.target != null && this.worker.getJob() == WorkerJob.FARMER && this.ticksOnTarget < GIVE_UP_TICKS;
+        return this.target != null && this.worker.getJob() == WorkerJob.FARMER && this.ticksOnTarget < GIVE_UP_TICKS
+                && !this.worker.isDoneForToday();
     }
 
     @Override
@@ -309,7 +313,10 @@ public class FarmerWorkGoal extends Goal implements DescribesActivity {
         return best;
     }
 
-    /** Harvests a ripe crop at pos (if any), then plants seeds there. Returns true if anything happened. */
+    /**
+     * Harvests a ripe crop at pos (if any), then plants seeds there. Returns true if anything happened.
+     * A harvest that would take the worker over its daily limit isn't made (the crop stays for tomorrow).
+     */
     private boolean workOn(ServerLevel level, BlockPos pos) {
         if (!isFarmland(level.getBlockState(pos.below()))) {
             return false;
@@ -321,6 +328,9 @@ public class FarmerWorkGoal extends Goal implements DescribesActivity {
         if (state.getBlock() instanceof CropBlock crop && crop.isMaxAge(state)) {
             replant = state.getCloneItemStack(level, pos, false).getItem(); // e.g. wheat -> wheat seeds
             List<ItemStack> drops = Block.getDrops(state, level, pos, null, this.worker, this.worker.getMainHandItem());
+            if (!this.worker.takeHarvest(drops.stream().mapToInt(ItemStack::getCount).sum())) {
+                return false; // worn out: done for today
+            }
             level.destroyBlock(pos, false, this.worker);
             drops.forEach(drop -> {
                 this.worker.recordCollected(drop);

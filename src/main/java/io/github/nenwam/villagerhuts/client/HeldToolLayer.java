@@ -16,10 +16,10 @@ import net.minecraft.client.renderer.texture.OverlayTexture;
  * head at the top pointing outward. Replaces vanilla's crossed-arms item layer, which shows
  * items half-size floating in front of the arms.
  *
- * Expects state.heldItem to be prepared with ItemDisplayContext.NONE (see WorkerRenderer),
+ * Expects state.heldItem to be prepared with ItemDisplayContext.GUI (see WorkerRenderer),
  * which draws the item's flat art centered on the origin.
  */
-public class HeldToolLayer extends RenderLayer<VillagerRenderState, VillagerModel> {
+public class HeldToolLayer<S extends VillagerRenderState> extends RenderLayer<S, VillagerModel> {
     // Where the hands grip the handle, measured from the arms' pivot with the body upright, in blocks.
     // x: negative = the worker's right; y: positive = down; z: negative = forward.
     private static final float GRIP_X = -0.16F;
@@ -28,12 +28,12 @@ public class HeldToolLayer extends RenderLayer<VillagerRenderState, VillagerMode
     private static final float LEAN = (float) Math.toRadians(-8.0); // top of the handle tips outward
     private static final float SCALE = 1.1F;
 
-    public HeldToolLayer(RenderLayerParent<VillagerRenderState, VillagerModel> renderer) {
+    public HeldToolLayer(RenderLayerParent<S, VillagerModel> renderer) {
         super(renderer);
     }
 
     @Override
-    public void submit(PoseStack poseStack, SubmitNodeCollector collector, int lightCoords, VillagerRenderState state, float yRot, float xRot) {
+    public void submit(PoseStack poseStack, SubmitNodeCollector collector, int lightCoords, S state, float yRot, float xRot) {
         ItemStackRenderState item = state.heldItem;
         if (item.isEmpty()) {
             return;

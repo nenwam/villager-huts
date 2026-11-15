@@ -3,64 +3,57 @@ package io.github.nenwam.villagerhuts.client;
 import java.util.EnumMap;
 import java.util.Map;
 
+import io.github.nenwam.villagerhuts.VillagerHuts;
 import io.github.nenwam.villagerhuts.entity.WorkerEntity;
-import io.github.nenwam.villagerhuts.job.WorkerJob;
+import io.github.nenwam.villagerhuts.entity.WorkerLook;
 import net.minecraft.client.model.geom.ModelLayers;
-import net.minecraft.client.model.npc.BabyVillagerModel;
 import net.minecraft.client.model.npc.VillagerModel;
 import net.minecraft.client.renderer.entity.EntityRendererProvider;
 import net.minecraft.client.renderer.entity.MobRenderer;
-import net.minecraft.client.renderer.entity.layers.VillagerProfessionLayer;
 import net.minecraft.client.renderer.entity.state.VillagerRenderState;
-import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.resources.Identifier;
 import net.minecraft.world.item.ItemDisplayContext;
-import net.minecraft.world.entity.npc.villager.VillagerData;
-import net.minecraft.world.entity.npc.villager.VillagerType;
 
 /**
- * Draws workers with Minecraft's own villager model and textures.
- * The outfit comes from the worker's job (see WorkerJob.look()), using vanilla's profession outfits.
+ * Draws workers with Minecraft's villager model, in their own look (see WorkerLook): one texture holds the
+ * whole worker, clothes and headwear included (headwear sits on the model's hat layer).
  */
-public class WorkerRenderer extends MobRenderer<WorkerEntity, VillagerRenderState, VillagerModel> {
-    private static final Identifier BASE_TEXTURE = Identifier.withDefaultNamespace("textures/entity/villager/villager.png");
+public class WorkerRenderer extends MobRenderer<WorkerEntity, WorkerRenderer.State, VillagerModel> {
+    private static final Map<WorkerLook, Identifier> TEXTURES = new EnumMap<>(WorkerLook.class);
 
-    private final Map<WorkerJob, VillagerData> looks = new EnumMap<>(WorkerJob.class);
+    static {
+        for (WorkerLook look : WorkerLook.values()) {
+            TEXTURES.put(look, Identifier.fromNamespaceAndPath(VillagerHuts.MODID, "textures/entity/worker/" + look.id() + ".png"));
+        }
+    }
+
+    /** Vanilla's villager render state, plus which look to draw. */
+    public static class State extends VillagerRenderState {
+        WorkerLook look = WorkerLook.PAGRI_KURTA;
+    }
 
     public WorkerRenderer(EntityRendererProvider.Context context) {
         super(context, new VillagerModel(context.bakeLayer(ModelLayers.VILLAGER)), 0.5F);
-        for (WorkerJob job : WorkerJob.values()) {
-            this.looks.put(job, new VillagerData(
-                    BuiltInRegistries.VILLAGER_TYPE.getOrThrow(VillagerType.PLAINS),
-                    BuiltInRegistries.VILLAGER_PROFESSION.getOrThrow(job.look()),
-                    1));
-        }
-        // Biome clothing + profession outfit, same as vanilla villagers.
-        this.addLayer(new VillagerProfessionLayer<>(
-                this,
-                context.getResourceManager(),
-                "villager",
-                new VillagerModel(context.bakeLayer(ModelLayers.VILLAGER_NO_HAT)),
-                new BabyVillagerModel(context.bakeLayer(ModelLayers.VILLAGER_BABY_NO_HAT))));
         // The job tool, gripped in the folded hands.
-        this.addLayer(new HeldToolLayer(this));
+        this.addLayer(new HeldToolLayer<>(this));
     }
 
     @Override
-    public Identifier getTextureLocation(VillagerRenderState state) {
-        return BASE_TEXTURE;
+    public Identifier getTextureLocation(State state) {
+        return TEXTURES.get(state.look);
     }
 
     @Override
-    public VillagerRenderState createRenderState() {
-        return new VillagerRenderState();
+    public State createRenderState() {
+        return new State();
     }
 
     @Override
-    public void extractRenderState(WorkerEntity entity, VillagerRenderState state, float partialTicks) {
+    public void extractRenderState(WorkerEntity entity, State state, float partialTicks) {
         super.extractRenderState(entity, state, partialTicks);
-        // NONE = the item's plain art; HeldToolLayer positions it in the hands itself.
-        this.itemModelResolver.updateForLiving(state.heldItem, entity.getMainHandItem(), ItemDisplayContext.NONE, entity);
-        state.villagerData = this.looks.get(entity.getJob());
+        // The item's flat art, as in the inventory (no display transform for vanilla's flat items, and tridents and
+        // spears pick their flat art for it rather than their 3D in-hand model); HeldToolLayer positions it in the hands.
+        this.itemModelResolver.updateForLiving(state.heldItem, entity.getMainHandItem(), ItemDisplayContext.GUI, entity);
+        state.look = entity.getLook();
     }
 }

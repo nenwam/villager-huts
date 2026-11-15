@@ -8,12 +8,17 @@ import net.minecraft.world.item.ItemStack;
 
 /** A button drawn as an inventory slot holding an item icon (e.g. the book that opens worker details). */
 class SlotButton extends Button {
-    private final ItemStack icon;
+    private ItemStack icon;
 
     SlotButton(ItemStack icon, Component hint, OnPress onPress) {
         super(0, 0, 18, 18, hint, onPress, DEFAULT_NARRATION);
         this.icon = icon;
         this.setTooltip(Tooltip.create(hint));
+    }
+
+    /** Changes the icon (e.g. to the worker's own tool). */
+    void setIcon(ItemStack icon) {
+        this.icon = icon;
     }
 
     /** The color inside the slot: plain, unless a subclass shows a state with it (like the order a worker is on). */

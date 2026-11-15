@@ -14,18 +14,19 @@ import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
 import net.minecraft.resources.Identifier;
 import net.minecraft.world.level.levelgen.structure.BoundingBox;
 
-/** Server -> client: the worker you're giving a farm or chest to, or empty when that's over (see WorkerAssigning). */
+/** Server -> client: the worker you're giving a farm (or post), chest or bed to, or empty when that's over (see WorkerAssigning). */
 public record AssignModePayload(Optional<Selected> selected) implements CustomPacketPayload {
     public static final AssignModePayload NONE = new AssignModePayload(Optional.empty());
 
     /**
      * @param name    what to call the worker on screen
      * @param newFarm making a new farm (shift + right-click), rather than giving it an existing farm or a chest
-     * @param farm    its farm, if it has one (a chest's distance is measured from it)
+     * @param farm    its farm (or a fighter's guard area), if it has one (a chest's distance is measured from it)
      * @param ticks   how long until the selection runs out by itself
+     * @param fighter it's a fighter: clicking a block gives it a post there (guarding guardRadius blocks round it)
      */
     public record Selected(UUID worker, Component name, boolean newFarm, Optional<BoundingBox> farm,
-                           int maxFarmSize, int newFarmSize, int maxDistance, int ticks) {
+                           int maxFarmSize, int newFarmSize, int maxDistance, int ticks, boolean fighter, int guardRadius) {
         static final StreamCodec<RegistryFriendlyByteBuf, Selected> STREAM_CODEC = StreamCodec.composite(
                 UUIDUtil.STREAM_CODEC, Selected::worker,
                 ComponentSerialization.TRUSTED_STREAM_CODEC, Selected::name,
@@ -35,6 +36,8 @@ public record AssignModePayload(Optional<Selected> selected) implements CustomPa
                 ByteBufCodecs.VAR_INT, Selected::newFarmSize,
                 ByteBufCodecs.VAR_INT, Selected::maxDistance,
                 ByteBufCodecs.VAR_INT, Selected::ticks,
+                ByteBufCodecs.BOOL, Selected::fighter,
+                ByteBufCodecs.VAR_INT, Selected::guardRadius,
                 Selected::new);
     }
 

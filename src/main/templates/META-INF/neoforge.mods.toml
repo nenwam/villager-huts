@@ -40,7 +40,7 @@ authors="connor"
 
 # The description text for the mod (multi line!) (#mandatory)
 description='''
-Hire villager workers like farmers, give them a farm and a chest, and they work it for you.
+Hire farmers to work your farms, and Sikh fighters (warriors and rangers) to guard your home. Give them a farm or post, a chest and a bed, level them up with diamond carrots, and share them with friends in multiplayer.
 '''
 
 # The [[mixins]] block allows you to declare your mixin config to FML so that it gets loaded.

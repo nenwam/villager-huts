@@ -16,7 +16,12 @@ public final class ModCreativeTabs {
             .title(Component.translatable("itemGroup.villagerhuts"))
             .withTabsBefore(CreativeModeTabs.SPAWN_EGGS)
             .icon(() -> ModItems.FARMER.get().getDefaultInstance())
-            .displayItems((params, output) -> output.accept(ModItems.FARMER.get()))
+            .displayItems((params, output) -> {
+                output.accept(ModItems.FARMER.get());
+                output.accept(ModItems.FIGHTER.get());
+                output.accept(ModItems.DIAMOND_CARROT.get());
+                output.accept(ModItems.FLAWLESS_DIAMOND_CARROT.get());
+            })
             .build());
 
     private ModCreativeTabs() {}

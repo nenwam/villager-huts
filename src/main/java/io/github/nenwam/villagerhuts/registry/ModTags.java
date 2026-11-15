@@ -14,6 +14,13 @@ import net.minecraft.world.level.block.Block;
 public final class ModTags {
     /** Items you hand a worker to make them a farmer (default: any hoe). */
     public static final TagKey<Item> FARMER_TOOLS = item("farmer_tools");
+    /**
+     * Items you hand a fighter to make them a warrior (default: everything tagged a melee weapon: swords, axes, spears,
+     * maces...). Modded weapons in c:tools/melee_weapon count too. See job/Weapons for the rest of the rules.
+     */
+    public static final TagKey<Item> WARRIOR_WEAPONS = item("warrior_weapons");
+    /** Items you hand a fighter to make them a ranger (default: bows, crossbows, tridents, and c:tools/ranged_weapon). */
+    public static final TagKey<Item> RANGER_WEAPONS = item("ranger_weapons");
     /** Seeds a farmer will plant (default: the same ones vanilla farmer villagers plant). */
     public static final TagKey<Item> FARMER_SEEDS = item("farmer_seeds");
     /** Blocks workers put their harvest into (default: chests and barrels). */

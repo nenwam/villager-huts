@@ -19,6 +19,7 @@ import net.minecraft.util.ARGB;
 import net.minecraft.world.InteractionResult;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.level.BlockGetter;
+import net.minecraft.world.level.block.AbstractBedBlock;
 import net.minecraft.world.level.block.ChestBlock;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.properties.ChestType;
@@ -40,16 +41,18 @@ import net.neoforged.neoforge.event.entity.player.PlayerInteractEvent;
 import org.jspecify.annotations.Nullable;
 
 /**
- * While you're giving a worker its farm or chest (you right-clicked it; see entity/WorkerAssigning):
+ * While you're giving a worker its farm, chest or bed (you right-clicked it; see entity/WorkerAssigning):
  *  - a hint above the hotbar says which worker, and how to cancel;
- *  - looking at a chest or barrel outlines it in yellow (red if it's too far from the worker's farm);
+ *  - looking at a chest, barrel or bed outlines it in yellow (red if it's too far from the worker's farm);
  *  - looking at anything else shows the farm area the worker would get there: a yellow box around it
  *    with the farmland it covers outlined in green (red if there's no farmland, or it's too far from
  *    the worker).
  * While you're making it a new farm (you shift + right-clicked it), looking at the ground shows the farm it
  * would make there (see FarmPlan) in different colors: a cyan box, the land it would till outlined in orange,
  * where it would put water in blue, and farmland that's already there in green.
- * Both use the same checks and limits as the server, so the preview matches.
+ * For a fighter, looking at anything that isn't a chest or a bed shows the area it would guard from a post there:
+ * a red-orange box, with the spot it would stand on outlined (red if it's too far from the fighter).
+ * All of these use the same checks and limits as the server, so the preview matches.
  * Right-clicking a block meanwhile doesn't do its normal thing (no chest opening): the server assigns it.
  */
 @EventBusSubscriber(modid = VillagerHuts.MODID, value = Dist.CLIENT)
@@ -60,6 +63,7 @@ public final class AssignPreview {
     private static final int COLOR_NEW_AREA = ARGB.color(220, 80, 220, 255);
     private static final int COLOR_TILL = ARGB.color(220, 255, 150, 40);
     private static final int COLOR_WATER = ARGB.color(230, 50, 110, 255);
+    private static final int COLOR_GUARD = ARGB.color(220, 255, 110, 50);
     private static final int HINT_COLOR = 0xFFFFFFFF;
     private static final int HINT_SOFT_COLOR = 0xFFC0C0C0;
     private static final int REFRESH_TICKS = 10;
@@ -80,6 +84,15 @@ public final class AssignPreview {
         BlockState state = level.getBlockState(pos);
         if (state.getBlock() instanceof ChestBlock && state.getValue(ChestBlock.TYPE) != ChestType.SINGLE) {
             return BoundingBox.fromCorners(pos, pos.relative(ChestBlock.getConnectedDirection(state)));
+        }
+        return new BoundingBox(pos);
+    }
+
+    /** The blocks a bed takes up: both halves (just the one block if it's been broken). */
+    static BoundingBox bedBox(BlockGetter level, BlockPos pos) {
+        BlockState state = level.getBlockState(pos);
+        if (state.getBlock() instanceof AbstractBedBlock) {
+            return BoundingBox.fromCorners(pos, pos.relative(AbstractBedBlock.getConnectedDirection(state)));
         }
         return new BoundingBox(pos);
     }
@@ -133,7 +146,8 @@ public final class AssignPreview {
         }
         int x = graphics.guiWidth() / 2;
         int y = graphics.guiHeight() - 92; // above the action bar messages (which say whether it worked)
-        String hint = now.newFarm() ? "gui.villagerhuts.assign.new_farm_hint" : "gui.villagerhuts.assign.hint";
+        String hint = now.newFarm() ? "gui.villagerhuts.assign.new_farm_hint"
+                : now.fighter() ? "gui.villagerhuts.assign.fighter_hint" : "gui.villagerhuts.assign.hint";
         graphics.centeredText(minecraft.font, Component.translatable(hint, now.name()), x, y, HINT_COLOR);
         String cancel = now.newFarm() ? "gui.villagerhuts.assign.new_farm_cancel" : "gui.villagerhuts.assign.cancel";
         graphics.centeredText(minecraft.font, Component.translatable(cancel, now.name()), x, y + 11, HINT_SOFT_COLOR);
@@ -189,12 +203,30 @@ public final class AssignPreview {
                     new Cells(mergedCells(plan.farmland(), origin), COLOR_FARMLAND)));
         }
 
+        if (WorkerAssigning.isBed(level, aimedAt)) {
+            BoundingBox box = bedBox(level, aimedAt);
+            boolean ok = workerPos != null && WorkerAssigning.isWithin(WorkerAssigning.chestAnchor(now.farm().orElse(null), workerPos),
+                    WorkerAssigning.bedHead(level, aimedAt), now.maxDistance());
+            return new Preview(aimedAt, now, time, new BlockPos(box.minX(), box.minY(), box.minZ()), outline(box),
+                    ok ? COLOR_AREA : COLOR_PROBLEM, List.of());
+        }
+
         if (WorkerAssigning.isStorage(level, aimedAt)) {
             BoundingBox box = storageBox(level, aimedAt);
             boolean ok = workerPos != null
                     && WorkerAssigning.isWithin(WorkerAssigning.chestAnchor(now.farm().orElse(null), workerPos), aimedAt, now.maxDistance());
             return new Preview(aimedAt, now, time, new BlockPos(box.minX(), box.minY(), box.minZ()), outline(box),
                     ok ? COLOR_AREA : COLOR_PROBLEM, List.of());
+        }
+
+        if (now.fighter()) {
+            BlockPos post = WorkerAssigning.postAt(level, aimedAt);
+            int r = now.guardRadius();
+            BoundingBox box = new BoundingBox(post.getX() - r, post.getY() - 2, post.getZ() - r, post.getX() + r, post.getY() + 4, post.getZ() + r);
+            BlockPos origin = new BlockPos(box.minX(), box.minY(), box.minZ());
+            boolean ok = workerPos != null && WorkerAssigning.isWithin(workerPos, post, now.maxDistance());
+            return new Preview(aimedAt, now, time, origin, outline(box), ok ? COLOR_GUARD : COLOR_PROBLEM,
+                    List.of(new Cells(mergedCells(List.of(post), origin), ok ? COLOR_AREA : COLOR_PROBLEM)));
         }
 
         FarmArea area = FarmArea.find(level, aimedAt, now.maxFarmSize());

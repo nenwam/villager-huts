@@ -1,10 +1,13 @@
 package io.github.nenwam.villagerhuts.item;
 
+import java.util.HashSet;
+import java.util.Set;
 import java.util.function.Consumer;
 
 import io.github.nenwam.villagerhuts.entity.WorkerEntity;
 import io.github.nenwam.villagerhuts.job.WorkerJob;
 import io.github.nenwam.villagerhuts.registry.ModEntities;
+import io.github.nenwam.villagerhuts.roster.WorkerRoster;
 import net.minecraft.ChatFormatting;
 import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
@@ -25,8 +28,9 @@ import org.jspecify.annotations.Nullable;
 
 /**
  * Hires a farmer: use it on the ground and a worker appears there, holding an iron hoe (the one from
- * the recipe; you get it back if you take it from them). It belongs to you. Give it a farm and a chest
- * by right-clicking it, then the farm or chest (see entity/WorkerAssigning).
+ * the recipe; you get it back if you take it from them), with a look and a name of its own. It belongs
+ * to you. Give it a farm, a chest and a bed by right-clicking it, then the farm, chest or bed (see
+ * entity/WorkerAssigning).
  */
 public class FarmerItem extends Item {
     public FarmerItem(Properties properties) {
@@ -35,6 +39,46 @@ public class FarmerItem extends Item {
 
     @Override
     public InteractionResult useOn(UseOnContext context) {
+        return hireAt(context, FarmerItem::spawnFarmer);
+    }
+
+    /** A new farmer with an iron hoe, standing at pos and facing the player who placed it, named differently from their other workers. */
+    public static @Nullable WorkerEntity spawnFarmer(ServerLevel level, BlockPos pos, @Nullable Player owner) {
+        return spawnWorker(level, pos, owner, WorkerJob.FARMER, new ItemStack(Items.IRON_HOE));
+    }
+
+    /**
+     * A new worker with this job (and tool, if any), standing at pos and facing the player who placed it. It belongs to
+     * them, follows them until it's given work, and gets a look and a name, different from their other workers' names.
+     */
+    public static @Nullable WorkerEntity spawnWorker(ServerLevel level, BlockPos pos, @Nullable Player owner, WorkerJob job, ItemStack tool) {
+        WorkerEntity worker = ModEntities.WORKER.get().create(level, EntitySpawnReason.SPAWN_ITEM_USE);
+        if (worker == null) {
+            return null;
+        }
+        float facing = owner == null ? 0.0F : owner.getYRot() + 180.0F;
+        worker.snapTo(pos.getX() + 0.5, pos.getY(), pos.getZ() + 0.5, facing, 0.0F);
+        worker.setYHeadRot(facing);
+        if (!tool.isEmpty()) {
+            worker.setItemSlot(EquipmentSlot.MAINHAND, tool);
+            worker.setGuaranteedDrop(EquipmentSlot.MAINHAND); // you get the tool back if the worker dies
+        }
+        worker.setJob(job);
+        worker.setHealth(worker.getMaxHealth());
+        worker.hire(owner); // follows them until it has work
+        Set<String> taken = new HashSet<>();
+        if (owner != null) {
+            WorkerRoster.get(level.getServer()).forPlayer(owner.getUUID())
+                    .forEach(row -> row.getValue().customName().ifPresent(taken::add));
+        }
+        worker.giveIdentity(taken);
+        level.addFreshEntity(worker);
+        level.playSound(null, pos, SoundEvents.VILLAGER_YES, SoundSource.NEUTRAL, 1.0F, 1.0F);
+        return worker;
+    }
+
+    /** Spawns a worker where the item's used, like a spawn egg (shared with the Fighter item). */
+    static InteractionResult hireAt(UseOnContext context, SpawnWorker spawn) {
         // Spawning happens on the server; the client just plays the arm swing.
         if (!(context.getLevel() instanceof ServerLevel level)) {
             return InteractionResult.SUCCESS;
@@ -47,34 +91,21 @@ public class FarmerItem extends Item {
             player.sendOverlayMessage(Component.translatable("message.villagerhuts.not_allowed"));
             return InteractionResult.FAIL;
         }
-        if (spawnFarmer(level, pos, player) == null) {
+        if (spawn.spawn(level, pos, player) == null) {
             return InteractionResult.FAIL;
         }
         context.getItemInHand().consume(1, player);
         return InteractionResult.SUCCESS_SERVER;
     }
 
-    /** A new farmer with an iron hoe, standing at pos and facing the player who placed it. */
-    public static @Nullable WorkerEntity spawnFarmer(ServerLevel level, BlockPos pos, @Nullable Player owner) {
-        WorkerEntity worker = ModEntities.WORKER.get().create(level, EntitySpawnReason.SPAWN_ITEM_USE);
-        if (worker == null) {
-            return null;
-        }
-        float facing = owner == null ? 0.0F : owner.getYRot() + 180.0F;
-        worker.snapTo(pos.getX() + 0.5, pos.getY(), pos.getZ() + 0.5, facing, 0.0F);
-        worker.setYHeadRot(facing);
-        worker.setItemSlot(EquipmentSlot.MAINHAND, new ItemStack(Items.IRON_HOE));
-        worker.setGuaranteedDrop(EquipmentSlot.MAINHAND); // you get the hoe back if the farmer dies
-        worker.setJob(WorkerJob.FARMER);
-        worker.hire(owner); // follows them until it has a farm or chest
-        level.addFreshEntity(worker);
-        level.playSound(null, pos, SoundEvents.VILLAGER_YES, SoundSource.NEUTRAL, 1.0F, 1.0F);
-        return worker;
+    interface SpawnWorker {
+        @Nullable WorkerEntity spawn(ServerLevel level, BlockPos pos, @Nullable Player owner);
     }
 
     @Override
     public void appendHoverText(ItemStack stack, Item.TooltipContext context, TooltipDisplay display, Consumer<Component> builder, TooltipFlag flag) {
         builder.accept(Component.translatable("item.villagerhuts.farmer.tooltip").withStyle(ChatFormatting.GRAY));
         builder.accept(Component.translatable("item.villagerhuts.farmer.tooltip.assign").withStyle(ChatFormatting.GRAY));
+        builder.accept(Component.translatable("item.villagerhuts.farmer.tooltip.upgrade").withStyle(ChatFormatting.GRAY));
     }
 }

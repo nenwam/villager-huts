@@ -9,7 +9,8 @@ import net.minecraft.world.entity.monster.Enemy;
 /**
  * Run from hostile mobs (zombies, skeletons, creepers, slimes...) the worker can see within 8 blocks.
  * Speeds up when they get within 7 blocks. Doesn't run while sheltering indoors at night,
- * since the walls and a closed door are safer than running outside.
+ * since the walls and a closed door are safer than running outside. Fighters who can fight stand their ground
+ * (only creepers make them back off: see AvoidCreepersGoal); a ranger out of ammo runs.
  */
 public class FleeHostilesGoal extends AvoidEntityGoal<Mob> implements DescribesActivity {
     private final WorkerEntity worker;
@@ -28,6 +29,6 @@ public class FleeHostilesGoal extends AvoidEntityGoal<Mob> implements DescribesA
 
     @Override
     public boolean canUse() {
-        return !this.worker.isSheltered() && super.canUse();
+        return !this.worker.canFight() && !this.worker.isSheltered() && super.canUse();
     }
 }
