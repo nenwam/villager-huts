@@ -32,7 +32,7 @@ import org.jspecify.annotations.Nullable;
  * sharing). The server checks every request: a player can only use workers they own or that are shared with
  * them, and only an owner can take a worker's tool, share it, or give it away.
  */
-@EventBusSubscriber(modid = VillagerHuts.MODID)
+@EventBusSubscriber(modid = VillagerHuts.MODID, bus = EventBusSubscriber.Bus.MOD)
 public final class ModNetwork {
 
     @SubscribeEvent
@@ -42,9 +42,11 @@ public final class ModNetwork {
         registrar.playToServer(RenameWorkerPayload.TYPE, RenameWorkerPayload.STREAM_CODEC, ModNetwork::handleRename);
         registrar.playToServer(WorkerCommandPayload.TYPE, WorkerCommandPayload.STREAM_CODEC, ModNetwork::handleCommand);
         registrar.playToServer(ShareWorkerPayload.TYPE, ShareWorkerPayload.STREAM_CODEC, ModNetwork::handleShare);
-        // The client-side handlers are registered in client/ClientWorkers and client/AssignPreview.
-        registrar.playToClient(WorkerListPayload.TYPE, WorkerListPayload.STREAM_CODEC);
-        registrar.playToClient(AssignModePayload.TYPE, AssignModePayload.STREAM_CODEC);
+        // Handled by the client classes (only ever called in a player's game, so a server never loads them).
+        registrar.playToClient(WorkerListPayload.TYPE, WorkerListPayload.STREAM_CODEC,
+                (payload, context) -> io.github.nenwam.villagerhuts.client.ClientWorkers.receive(payload));
+        registrar.playToClient(AssignModePayload.TYPE, AssignModePayload.STREAM_CODEC,
+                (payload, context) -> io.github.nenwam.villagerhuts.client.AssignPreview.receive(payload));
     }
 
     private static void sendWorkerList(RequestWorkersPayload payload, IPayloadContext context) {
@@ -140,7 +142,7 @@ public final class ModNetwork {
                 }
                 boolean fighter = worker.getJob().isFighter();
                 worker.returnTool(player);
-                player.sendOverlayMessage(Component.translatable(fighter ? "message.villagerhuts.weapon_removed" : "message.villagerhuts.job_removed"));
+                player.displayClientMessage(Component.translatable(fighter ? "message.villagerhuts.weapon_removed" : "message.villagerhuts.job_removed"), true);
             }
         }
         roster.update(worker);

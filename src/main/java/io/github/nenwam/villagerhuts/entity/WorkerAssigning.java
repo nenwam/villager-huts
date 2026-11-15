@@ -23,7 +23,7 @@ import net.minecraft.world.InteractionHand;
 import net.minecraft.world.InteractionResult;
 import net.minecraft.world.level.BlockGetter;
 import net.minecraft.world.level.Level;
-import net.minecraft.world.level.block.AbstractBedBlock;
+import net.minecraft.world.level.block.BedBlock;
 import net.minecraft.world.level.block.entity.HopperBlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.properties.BedPart;
@@ -72,7 +72,7 @@ public final class WorkerAssigning {
         Selection current = selection(player);
         if (current != null && current.worker().equals(worker.getUUID()) && current.newFarm() == newFarm) {
             clear(player);
-            player.sendOverlayMessage(Component.translatable("message.villagerhuts.assign_cancelled"));
+            player.displayClientMessage(Component.translatable("message.villagerhuts.assign_cancelled"), true);
             return;
         }
         SELECTED.put(player.getUUID(), new Selection(worker.getUUID(), newFarm, player.level().getGameTime() + TIMEOUT_TICKS));
@@ -158,13 +158,13 @@ public final class WorkerAssigning {
 
     public static boolean isBed(BlockGetter level, BlockPos pos) {
         BlockState state = level.getBlockState(pos);
-        return state.is(BlockTags.BEDS) && state.getBlock() instanceof AbstractBedBlock;
+        return state.is(BlockTags.BEDS) && state.getBlock() instanceof BedBlock;
     }
 
     /** The head end of the bed at pos (where a sleeper's head goes, and where beds are tracked). */
     public static BlockPos bedHead(BlockGetter level, BlockPos pos) {
         BlockState state = level.getBlockState(pos);
-        return state.getValue(AbstractBedBlock.PART) == BedPart.HEAD ? pos : pos.relative(AbstractBedBlock.getConnectedDirection(state));
+        return state.getValue(BedBlock.PART) == BedPart.HEAD ? pos : pos.relative(BedBlock.getConnectedDirection(state));
     }
 
     /** The post a fighter gets for this clicked block: the spot to stand on it (or the block itself, if it's grass or air). */
@@ -196,23 +196,23 @@ public final class WorkerAssigning {
             return;
         }
         event.setCanceled(true);
-        event.setCancellationResult(InteractionResult.SUCCESS_SERVER);
+        event.setCancellationResult(InteractionResult.SUCCESS);
         if (event.getHand() != InteractionHand.MAIN_HAND) {
             return;
         }
         WorkerEntity worker = level.getEntity(selection.worker()) instanceof WorkerEntity found && found.isAlive() ? found : null;
         if (worker != null && !worker.canCommand(player)) { // its owner stopped sharing it with them meanwhile
             clear(player);
-            player.sendOverlayMessage(Component.translatable("message.villagerhuts.no_longer_shared"));
+            player.displayClientMessage(Component.translatable("message.villagerhuts.no_longer_shared"), true);
             return;
         }
         if (worker == null) {
             clear(player);
-            player.sendOverlayMessage(Component.translatable("message.villagerhuts.assign_worker_missing"));
+            player.displayClientMessage(Component.translatable("message.villagerhuts.assign_worker_missing"), true);
             return;
         }
         Outcome outcome = selection.newFarm() ? createFarm(level, worker, event.getPos()) : assign(level, worker, event.getPos());
-        player.sendOverlayMessage(outcome.message());
+        player.displayClientMessage(outcome.message(), true);
         if (outcome.assigned()) {
             clear(player);
             level.playSound(null, event.getPos(), worker.getJob().isFighter() ? SoundEvents.VILLAGER_WORK_WEAPONSMITH

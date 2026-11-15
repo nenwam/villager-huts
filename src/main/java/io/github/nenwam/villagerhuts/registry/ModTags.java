@@ -2,7 +2,7 @@ package io.github.nenwam.villagerhuts.registry;
 
 import io.github.nenwam.villagerhuts.VillagerHuts;
 import net.minecraft.core.registries.Registries;
-import net.minecraft.resources.Identifier;
+import net.minecraft.resources.ResourceLocation;
 import net.minecraft.tags.TagKey;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.level.block.Block;
@@ -23,15 +23,17 @@ public final class ModTags {
     public static final TagKey<Item> RANGER_WEAPONS = item("ranger_weapons");
     /** Seeds a farmer will plant (default: the same ones vanilla farmer villagers plant). */
     public static final TagKey<Item> FARMER_SEEDS = item("farmer_seeds");
+    /** Ground a farmer tills into farmland for a new farm (default: grass, dirt and dirt paths, as a hoe tills). */
+    public static final TagKey<Block> TILLABLE = block("tillable");
     /** Blocks workers put their harvest into (default: chests and barrels). */
     public static final TagKey<Block> WORKER_STORAGE = block("worker_storage");
 
     private static TagKey<Item> item(String name) {
-        return TagKey.create(Registries.ITEM, Identifier.fromNamespaceAndPath(VillagerHuts.MODID, name));
+        return TagKey.create(Registries.ITEM, ResourceLocation.fromNamespaceAndPath(VillagerHuts.MODID, name));
     }
 
     private static TagKey<Block> block(String name) {
-        return TagKey.create(Registries.BLOCK, Identifier.fromNamespaceAndPath(VillagerHuts.MODID, name));
+        return TagKey.create(Registries.BLOCK, ResourceLocation.fromNamespaceAndPath(VillagerHuts.MODID, name));
     }
 
     private ModTags() {}

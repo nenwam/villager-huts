@@ -4,6 +4,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
+import com.mojang.blaze3d.platform.InputConstants;
+
 import io.github.nenwam.villagerhuts.VillagerHuts;
 import io.github.nenwam.villagerhuts.entity.WorkerEntity;
 import io.github.nenwam.villagerhuts.job.WorkerJob;
@@ -12,7 +14,7 @@ import io.github.nenwam.villagerhuts.network.WorkerCommandPayload;
 import io.github.nenwam.villagerhuts.network.WorkerInfo;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
-import net.minecraft.client.gui.GuiGraphicsExtractor;
+import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.AbstractWidget;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.components.EditBox;
@@ -22,10 +24,8 @@ import net.minecraft.client.gui.components.WidgetSprites;
 import net.minecraft.client.gui.narration.NarrationElementOutput;
 import net.minecraft.client.gui.navigation.ScreenRectangle;
 import net.minecraft.client.gui.screens.inventory.InventoryScreen;
-import net.minecraft.client.input.KeyEvent;
-import net.minecraft.client.input.MouseButtonEvent;
 import net.minecraft.network.chat.Component;
-import net.minecraft.resources.Identifier;
+import net.minecraft.resources.ResourceLocation;
 import net.minecraft.util.FormattedCharSequence;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
@@ -33,6 +33,7 @@ import net.minecraft.world.item.Items;
 import net.neoforged.api.distmarker.Dist;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.fml.common.EventBusSubscriber;
+import net.neoforged.neoforge.client.event.ContainerScreenEvent;
 import net.neoforged.neoforge.client.event.ScreenEvent;
 import org.jspecify.annotations.Nullable;
 
@@ -60,12 +61,13 @@ public final class WorkerPanel {
     private static final int SHOW_ALL_COLOR = 0xFFE0B040;
 
     private static final WidgetSprites BACK_SPRITES = new WidgetSprites(
-            Identifier.withDefaultNamespace("recipe_book/page_backward"), Identifier.withDefaultNamespace("recipe_book/page_backward_highlighted"));
+            ResourceLocation.withDefaultNamespace("recipe_book/page_backward"), ResourceLocation.withDefaultNamespace("recipe_book/page_backward_highlighted"));
 
     private static boolean open;
     private static @Nullable UUID selected; // worker whose details page is showing, or null for the list
     private static boolean sharingPage;     // showing the selected worker's sharing page instead of its details
     private static @Nullable UUID renaming; // worker whose name is being typed, or null
+    private static boolean focusNameBox;    // give the name box focus on the next frame (see toggleRename)
     private static @Nullable Boolean fighterButtons; // whether the order and tool buttons are set up for a fighter
     private static @Nullable String fieldButton;     // which way the field button is set up (the field it was set for)
     private static @Nullable Widgets current;
@@ -119,12 +121,7 @@ public final class WorkerPanel {
                 () -> selected != null && ClientWorkers.isShown(selected), WorkerPanel::selectedColor,
                 Component.translatable("gui.villagerhuts.panel.show"), Component.translatable("gui.villagerhuts.panel.hide"));
         Button rename = new SlotButton(new ItemStack(Items.NAME_TAG), Component.translatable("gui.villagerhuts.panel.rename"),
-                button -> toggleRename()) {
-            @Override
-            public boolean shouldTakeFocusAfterInteraction() {
-                return false; // clicking it focuses the name box
-            }
-        };
+                button -> toggleRename());
         EditBox nameBox = new EditBox(Minecraft.getInstance().font, 0, 14, Component.translatable("gui.villagerhuts.panel.rename"));
         nameBox.setMaxLength(RenameWorkerPayload.MAX_NAME_LENGTH);
         nameBox.setHint(Component.translatable("gui.villagerhuts.panel.rename_hint"));
@@ -163,6 +160,7 @@ public final class WorkerPanel {
                 sharing, sharingList, area);
         current = widgets;
         renaming = null;
+        focusNameBox = false;
         fighterButtons = null;
         fieldButton = null;
         layout(widgets);
@@ -187,13 +185,14 @@ public final class WorkerPanel {
         }
     }
 
+    // Drawn between the inventory's background and its widgets (and the worker panel's), so they go on top.
     @SubscribeEvent
-    static void onRenderBackground(ScreenEvent.Render.Background event) {
+    static void onRenderBackground(ContainerScreenEvent.Render.Background event) {
         Widgets widgets = current;
-        if (!open || widgets == null || event.getScreen() != widgets.screen()) {
+        if (!open || widgets == null || event.getContainerScreen() != widgets.screen()) {
             return;
         }
-        GuiGraphicsExtractor graphics = event.getGuiGraphics();
+        GuiGraphics graphics = event.getGuiGraphics();
         Font font = Minecraft.getInstance().font;
         ScreenRectangle panel = widgets.area().getRectangle();
         NativeStyle.panel(graphics, panel.left(), panel.top(), panel.width(), panel.height());
@@ -201,18 +200,18 @@ public final class WorkerPanel {
         if (details != null && sharingPage) {
             int titleX = widgets.back().getRight() + 4;
             Component title = Component.translatable("gui.villagerhuts.sharing.title", WorkerDetails.name(details));
-            graphics.text(font, WorkerList.fit(font, title, panel.right() - PADDING - titleX), titleX, panel.top() + 9, NativeStyle.LABEL, false);
+            graphics.drawString(font, WorkerList.fit(font, title, panel.right() - PADDING - titleX), titleX, panel.top() + 9, NativeStyle.LABEL, false);
             return;
         }
         if (details != null) {
             if (renaming == null) { // while renaming, the name box sits here instead
                 int titleX = widgets.back().getRight() + 4;
                 int titleWidth = widgets.rename().getX() - titleX - 2;
-                graphics.text(font, WorkerList.fit(font, WorkerDetails.title(details), titleWidth), titleX, panel.top() + 9, NativeStyle.LABEL, false);
+                graphics.drawString(font, WorkerList.fit(font, WorkerDetails.title(details), titleWidth), titleX, panel.top() + 9, NativeStyle.LABEL, false);
             }
             return;
         }
-        graphics.text(font, Component.translatable("gui.villagerhuts.panel.title"), panel.left() + 8, panel.top() + 9, NativeStyle.LABEL, false);
+        graphics.drawString(font, Component.translatable("gui.villagerhuts.panel.title"), panel.left() + 8, panel.top() + 9, NativeStyle.LABEL, false);
         if (ClientWorkers.workers().isEmpty()) {
             int y = panel.top() + HEADER + 2;
             for (FormattedCharSequence line : font.split(Component.translatable("gui.villagerhuts.workers.empty"), panel.width() - 2 * PADDING)) {
@@ -230,19 +229,21 @@ public final class WorkerPanel {
         if (!open || widgets == null || event.getScreen() != widgets.screen()) {
             return;
         }
-        MouseButtonEvent mouse = event.getMouseButtonEvent();
-        if (widgets.area().isMouseOver(mouse.x(), mouse.y())) {
-            widgets.list().mouseReleased(mouse);
-            widgets.showAll().mouseReleased(mouse);
-            widgets.back().mouseReleased(mouse);
-            widgets.rename().mouseReleased(mouse);
-            widgets.nameBox().mouseReleased(mouse);
-            widgets.detailToggle().mouseReleased(mouse);
-            widgets.orders().forEach(button -> button.mouseReleased(mouse));
-            widgets.field().mouseReleased(mouse);
-            widgets.takeTool().mouseReleased(mouse);
-            widgets.sharing().mouseReleased(mouse);
-            widgets.sharingList().mouseReleased(mouse);
+        double x = event.getMouseX();
+        double y = event.getMouseY();
+        int button = event.getButton();
+        if (widgets.area().isMouseOver(x, y)) {
+            widgets.list().mouseReleased(x, y, button);
+            widgets.showAll().mouseReleased(x, y, button);
+            widgets.back().mouseReleased(x, y, button);
+            widgets.rename().mouseReleased(x, y, button);
+            widgets.nameBox().mouseReleased(x, y, button);
+            widgets.detailToggle().mouseReleased(x, y, button);
+            widgets.orders().forEach(order -> order.mouseReleased(x, y, button));
+            widgets.field().mouseReleased(x, y, button);
+            widgets.takeTool().mouseReleased(x, y, button);
+            widgets.sharing().mouseReleased(x, y, button);
+            widgets.sharingList().mouseReleased(x, y, button);
             widgets.screen().setDragging(false);
             event.setCanceled(true);
         }
@@ -275,13 +276,13 @@ public final class WorkerPanel {
         if (renaming == null || widgets == null || event.getScreen() != widgets.screen()) {
             return;
         }
-        KeyEvent key = event.getKeyEvent();
-        if (key.isEscape()) {
+        int key = event.getKeyCode();
+        if (key == InputConstants.KEY_ESCAPE) {
             finishRename(widgets, false);
-        } else if (key.isConfirmation()) {
+        } else if (key == InputConstants.KEY_RETURN || key == InputConstants.KEY_NUMPADENTER) {
             finishRename(widgets, true);
         } else {
-            widgets.nameBox().keyPressed(key);
+            widgets.nameBox().keyPressed(key, event.getScanCode(), event.getModifiers());
         }
         event.setCanceled(true);
     }
@@ -297,6 +298,12 @@ public final class WorkerPanel {
     }
 
     private static void layout(Widgets widgets) {
+        if (focusNameBox) {
+            focusNameBox = false;
+            if (renaming != null) {
+                widgets.screen().setFocused(widgets.nameBox());
+            }
+        }
         InventoryScreen screen = widgets.screen();
         int left = screen.leftPos;
         int top = screen.topPos;
@@ -451,7 +458,8 @@ public final class WorkerPanel {
         renaming = info.id();
         widgets.nameBox().setValue(info.customName().orElse(""));
         widgets.nameBox().visible = true;
-        widgets.screen().setFocused(widgets.nameBox());
+        // The screen focuses the button that was clicked once this returns, so focus the name box on the next frame.
+        focusNameBox = true;
         setRenameHint(widgets, Component.translatable("gui.villagerhuts.panel.rename_save"));
     }
 
@@ -492,12 +500,12 @@ public final class WorkerPanel {
         }
 
         @Override
-        public boolean mouseClicked(MouseButtonEvent event, boolean doubleClick) {
-            return this.visible && this.isMouseOver(event.x(), event.y());
+        public boolean mouseClicked(double mouseX, double mouseY, int button) {
+            return this.visible && this.isMouseOver(mouseX, mouseY);
         }
 
         @Override
-        protected void extractWidgetRenderState(GuiGraphicsExtractor graphics, int mouseX, int mouseY, float a) {
+        protected void renderWidget(GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
         }
 
         @Override

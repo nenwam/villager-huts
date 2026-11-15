@@ -1,12 +1,12 @@
 package io.github.nenwam.villagerhuts.farm;
 
+import io.github.nenwam.villagerhuts.registry.ModTags;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
-import net.minecraft.tags.BlockTags;
 import net.minecraft.tags.FluidTags;
 import net.minecraft.world.level.BlockGetter;
 import net.minecraft.world.level.block.state.BlockState;
@@ -58,13 +58,13 @@ public record FarmPlan(BoundingBox window, List<BlockPos> till, List<BlockPos> f
 
     /** Ground a hoe turns into farmland, with room on top (air, or a plant like grass that can be cleared). */
     public static boolean isTillable(BlockGetter level, BlockPos pos) {
-        return level.getBlockState(pos).is(BlockTags.TURNS_INTO_FARMLAND) && isClearOnTop(level, pos);
+        return level.getBlockState(pos).is(ModTags.TILLABLE) && isClearOnTop(level, pos);
     }
 
     /** Ground (tillable land, or farmland) that water can go in without running off: solid all round and underneath. */
     public static boolean canHoldWater(BlockGetter level, BlockPos pos) {
         BlockState state = level.getBlockState(pos);
-        if (!(state.is(BlockTags.TURNS_INTO_FARMLAND) || FarmArea.isFarmland(state)) || !isClearOnTop(level, pos)
+        if (!(state.is(ModTags.TILLABLE) || FarmArea.isFarmland(state)) || !isClearOnTop(level, pos)
                 || !holdsWater(level, pos.below())) {
             return false;
         }

@@ -1,6 +1,10 @@
 package io.github.nenwam.villagerhuts.client;
 
 import java.util.List;
+import java.util.UUID;
+
+import com.mojang.blaze3d.vertex.PoseStack;
+import com.mojang.blaze3d.vertex.VertexConsumer;
 
 import io.github.nenwam.villagerhuts.VillagerHuts;
 import io.github.nenwam.villagerhuts.entity.WorkerAssigning;
@@ -9,17 +13,18 @@ import io.github.nenwam.villagerhuts.farm.FarmPlan;
 import io.github.nenwam.villagerhuts.network.AssignModePayload;
 import net.minecraft.client.DeltaTracker;
 import net.minecraft.client.Minecraft;
-import net.minecraft.client.gui.GuiGraphicsExtractor;
+import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.multiplayer.ClientLevel;
-import net.minecraft.client.renderer.rendertype.RenderTypes;
+import net.minecraft.client.renderer.RenderType;
 import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
-import net.minecraft.resources.Identifier;
-import net.minecraft.util.ARGB;
+import net.minecraft.resources.ResourceLocation;
+import net.minecraft.util.FastColor;
+import net.minecraft.util.Mth;
 import net.minecraft.world.InteractionResult;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.level.BlockGetter;
-import net.minecraft.world.level.block.AbstractBedBlock;
+import net.minecraft.world.level.block.BedBlock;
 import net.minecraft.world.level.block.ChestBlock;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.properties.ChestType;
@@ -33,16 +38,13 @@ import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.fml.common.EventBusSubscriber;
 import net.neoforged.neoforge.client.event.ClientPlayerNetworkEvent;
 import net.neoforged.neoforge.client.event.ClientTickEvent;
-import net.neoforged.neoforge.client.event.ExtractBlockOutlineRenderStateEvent;
-import net.neoforged.neoforge.client.event.RegisterGuiLayersEvent;
-import net.neoforged.neoforge.client.gui.VanillaGuiLayers;
-import net.neoforged.neoforge.client.network.event.RegisterClientPayloadHandlersEvent;
+import net.neoforged.neoforge.client.event.RenderHighlightEvent;
 import net.neoforged.neoforge.event.entity.player.PlayerInteractEvent;
 import org.jspecify.annotations.Nullable;
 
 /**
  * While you're giving a worker its farm, chest or bed (you right-clicked it; see entity/WorkerAssigning):
- *  - a hint above the hotbar says which worker, and how to cancel;
+ *  - a hint above the hotbar says which worker, and how to cancel (drawHint, registered in VillagerHutsClient);
  *  - looking at a chest, barrel or bed outlines it in yellow (red if it's too far from the worker's farm);
  *  - looking at anything else shows the farm area the worker would get there: a yellow box around it
  *    with the farmland it covers outlined in green (red if there's no farmland, or it's too far from
@@ -57,17 +59,17 @@ import org.jspecify.annotations.Nullable;
  */
 @EventBusSubscriber(modid = VillagerHuts.MODID, value = Dist.CLIENT)
 public final class AssignPreview {
-    private static final int COLOR_AREA = ARGB.color(220, 255, 220, 50);
-    private static final int COLOR_FARMLAND = ARGB.color(200, 90, 255, 90);
-    private static final int COLOR_PROBLEM = ARGB.color(220, 255, 70, 70);
-    private static final int COLOR_NEW_AREA = ARGB.color(220, 80, 220, 255);
-    private static final int COLOR_TILL = ARGB.color(220, 255, 150, 40);
-    private static final int COLOR_WATER = ARGB.color(230, 50, 110, 255);
-    private static final int COLOR_GUARD = ARGB.color(220, 255, 110, 50);
+    private static final int COLOR_AREA = FastColor.ARGB32.color(220, 255, 220, 50);
+    private static final int COLOR_FARMLAND = FastColor.ARGB32.color(200, 90, 255, 90);
+    private static final int COLOR_PROBLEM = FastColor.ARGB32.color(220, 255, 70, 70);
+    private static final int COLOR_NEW_AREA = FastColor.ARGB32.color(220, 80, 220, 255);
+    private static final int COLOR_TILL = FastColor.ARGB32.color(220, 255, 150, 40);
+    private static final int COLOR_WATER = FastColor.ARGB32.color(230, 50, 110, 255);
+    private static final int COLOR_GUARD = FastColor.ARGB32.color(220, 255, 110, 50);
     private static final int HINT_COLOR = 0xFFFFFFFF;
     private static final int HINT_SOFT_COLOR = 0xFFC0C0C0;
     private static final int REFRESH_TICKS = 10;
-    private static final Identifier HINT_LAYER = Identifier.fromNamespaceAndPath(VillagerHuts.MODID, "assign_hint");
+    public static final ResourceLocation HINT_LAYER = ResourceLocation.fromNamespaceAndPath(VillagerHuts.MODID, "assign_hint");
 
     private static AssignModePayload.@Nullable Selected selected;
     private static int ticksLeft;
@@ -91,21 +93,52 @@ public final class AssignPreview {
     /** The blocks a bed takes up: both halves (just the one block if it's been broken). */
     static BoundingBox bedBox(BlockGetter level, BlockPos pos) {
         BlockState state = level.getBlockState(pos);
-        if (state.getBlock() instanceof AbstractBedBlock) {
-            return BoundingBox.fromCorners(pos, pos.relative(AbstractBedBlock.getConnectedDirection(state)));
+        if (state.getBlock() instanceof BedBlock) {
+            return BoundingBox.fromCorners(pos, pos.relative(BedBlock.getConnectedDirection(state)));
         }
         return new BoundingBox(pos);
     }
 
+    /**
+     * Outlines a shape's edges in a color (ARGB), offset by (x, y, z) from the pose. Like vanilla's block outline, for
+     * a lines vertex consumer.
+     */
+    static void drawShape(PoseStack poseStack, VertexConsumer lines, VoxelShape shape, double x, double y, double z, int color) {
+        float alpha = FastColor.ARGB32.alpha(color) / 255.0F;
+        float red = FastColor.ARGB32.red(color) / 255.0F;
+        float green = FastColor.ARGB32.green(color) / 255.0F;
+        float blue = FastColor.ARGB32.blue(color) / 255.0F;
+        PoseStack.Pose pose = poseStack.last();
+        shape.forAllEdges((x1, y1, z1, x2, y2, z2) -> {
+            float dx = (float) (x2 - x1);
+            float dy = (float) (y2 - y1);
+            float dz = (float) (z2 - z1);
+            float length = Mth.sqrt(dx * dx + dy * dy + dz * dz);
+            dx /= length;
+            dy /= length;
+            dz /= length;
+            lines.addVertex(pose, (float) (x1 + x), (float) (y1 + y), (float) (z1 + z)).setColor(red, green, blue, alpha).setNormal(pose, dx, dy, dz);
+            lines.addVertex(pose, (float) (x2 + x), (float) (y2 + y), (float) (z2 + z)).setColor(red, green, blue, alpha).setNormal(pose, dx, dy, dz);
+        });
+    }
+
+    /** The entity with this id, if it's loaded on this side (1.21.1's client level has no lookup by id for it). */
+    static @Nullable Entity findEntity(ClientLevel level, UUID id) {
+        for (Entity entity : level.entitiesForRendering()) {
+            if (entity.getUUID().equals(id)) {
+                return entity;
+            }
+        }
+        return null;
+    }
+
     // ------------------------------------------------------------------ selection
 
-    @SubscribeEvent
-    static void registerPayloadHandler(RegisterClientPayloadHandlersEvent event) {
-        event.register(AssignModePayload.TYPE, (payload, context) -> {
-            selected = payload.selected().orElse(null);
-            ticksLeft = selected == null ? 0 : selected.ticks();
-            cached = null;
-        });
+    /** The server says which worker you're giving something to now, or that you've finished (see ModNetwork). */
+    public static void receive(AssignModePayload payload) {
+        selected = payload.selected().orElse(null);
+        ticksLeft = selected == null ? 0 : selected.ticks();
+        cached = null;
     }
 
     @SubscribeEvent
@@ -133,60 +166,54 @@ public final class AssignPreview {
 
     // ------------------------------------------------------------------ hint
 
-    @SubscribeEvent
-    static void registerHint(RegisterGuiLayersEvent event) {
-        event.registerAbove(VanillaGuiLayers.OVERLAY_MESSAGE, HINT_LAYER, AssignPreview::drawHint);
-    }
-
-    private static void drawHint(GuiGraphicsExtractor graphics, DeltaTracker deltaTracker) {
+    /** The hint above the hotbar (a GUI layer above the action bar, registered in VillagerHutsClient). */
+    public static void drawHint(GuiGraphics graphics, DeltaTracker deltaTracker) {
         AssignModePayload.Selected now = selected;
         Minecraft minecraft = Minecraft.getInstance();
-        if (now == null || minecraft.gui.hud.isHidden()) { // F1 hides it, like the rest of the HUD
+        if (now == null || minecraft.options.hideGui) { // F1 hides it, like the rest of the HUD
             return;
         }
         int x = graphics.guiWidth() / 2;
         int y = graphics.guiHeight() - 92; // above the action bar messages (which say whether it worked)
         String hint = now.newFarm() ? "gui.villagerhuts.assign.new_farm_hint"
                 : now.fighter() ? "gui.villagerhuts.assign.fighter_hint" : "gui.villagerhuts.assign.hint";
-        graphics.centeredText(minecraft.font, Component.translatable(hint, now.name()), x, y, HINT_COLOR);
+        graphics.drawCenteredString(minecraft.font, Component.translatable(hint, now.name()), x, y, HINT_COLOR);
         String cancel = now.newFarm() ? "gui.villagerhuts.assign.new_farm_cancel" : "gui.villagerhuts.assign.cancel";
-        graphics.centeredText(minecraft.font, Component.translatable(cancel, now.name()), x, y + 11, HINT_SOFT_COLOR);
+        graphics.drawCenteredString(minecraft.font, Component.translatable(cancel, now.name()), x, y + 11, HINT_SOFT_COLOR);
     }
 
     // ------------------------------------------------------------------ preview
 
+    // Drawn along with the block outline (vanilla still draws its own outline too).
     @SubscribeEvent
-    static void onExtractBlockOutline(ExtractBlockOutlineRenderStateEvent event) {
+    static void onBlockHighlight(RenderHighlightEvent.Block event) {
         AssignModePayload.Selected now = selected;
-        if (now == null) {
+        ClientLevel level = Minecraft.getInstance().level;
+        if (now == null || level == null) {
             return;
         }
-        BlockPos aimedAt = event.getBlockPos();
-        long time = event.getLevel().getGameTime();
+        BlockPos aimedAt = event.getTarget().getBlockPos();
+        long time = level.getGameTime();
         Preview preview = cached;
         if (preview == null || !preview.aimedAt().equals(aimedAt) || preview.selected() != now || time - preview.gameTime() >= REFRESH_TICKS) {
-            preview = build(event.getLevel(), aimedAt, now, time);
+            preview = build(level, aimedAt, now, time);
             cached = preview;
         }
 
-        Preview shown = preview;
-        float lineWidth = Minecraft.getInstance().getWindow().getAppropriateLineWidth();
-        event.addCustomRenderer((state, collector, poseStack, levelState) -> {
-            Vec3 camera = levelState.cameraRenderState.pos;
-            poseStack.pushPose();
-            poseStack.translate(shown.origin().getX() - camera.x, shown.origin().getY() - camera.y, shown.origin().getZ() - camera.z);
-            collector.submitShapeOutline(poseStack, shown.area(), RenderTypes.linesTranslucent(), shown.areaColor(), lineWidth, false);
-            for (Cells cells : shown.cells()) {
-                collector.submitShapeOutline(poseStack, cells.shape(), RenderTypes.linesTranslucent(), cells.color(), lineWidth, false);
-            }
-            poseStack.popPose();
-            return false;
-        });
+        Vec3 camera = event.getCamera().getPosition();
+        double x = preview.origin().getX() - camera.x;
+        double y = preview.origin().getY() - camera.y;
+        double z = preview.origin().getZ() - camera.z;
+        VertexConsumer lines = event.getMultiBufferSource().getBuffer(RenderType.lines());
+        drawShape(event.getPoseStack(), lines, preview.area(), x, y, z, preview.areaColor());
+        for (Cells cells : preview.cells()) {
+            drawShape(event.getPoseStack(), lines, cells.shape(), x, y, z, cells.color());
+        }
     }
 
     private static Preview build(ClientLevel level, BlockPos aimedAt, AssignModePayload.Selected now, long time) {
         // Distances are measured from the worker; if it isn't loaded here, it's much too far anyway.
-        Entity worker = level.getEntity(now.worker());
+        Entity worker = findEntity(level, now.worker());
         BlockPos workerPos = worker != null ? worker.blockPosition() : null;
 
         if (now.newFarm()) {

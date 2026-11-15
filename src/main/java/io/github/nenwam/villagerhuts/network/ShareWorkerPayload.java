@@ -8,7 +8,7 @@ import net.minecraft.network.RegistryFriendlyByteBuf;
 import net.minecraft.network.codec.ByteBufCodecs;
 import net.minecraft.network.codec.StreamCodec;
 import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
-import net.minecraft.resources.Identifier;
+import net.minecraft.resources.ResourceLocation;
 
 /**
  * Client -> server: a button on a worker's sharing page in the worker panel (see ModNetwork.shareWorker).
@@ -17,7 +17,7 @@ import net.minecraft.resources.Identifier;
 public record ShareWorkerPayload(UUID worker, UUID player, Action action) implements CustomPacketPayload {
     public enum Action { SHARE, UNSHARE, GIVE }
 
-    public static final Type<ShareWorkerPayload> TYPE = new Type<>(Identifier.fromNamespaceAndPath(VillagerHuts.MODID, "share_worker"));
+    public static final Type<ShareWorkerPayload> TYPE = new Type<>(ResourceLocation.fromNamespaceAndPath(VillagerHuts.MODID, "share_worker"));
     public static final StreamCodec<RegistryFriendlyByteBuf, ShareWorkerPayload> STREAM_CODEC = StreamCodec.composite(
             UUIDUtil.STREAM_CODEC, ShareWorkerPayload::worker,
             UUIDUtil.STREAM_CODEC, ShareWorkerPayload::player,

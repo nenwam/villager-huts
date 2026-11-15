@@ -1,8 +1,8 @@
 package io.github.nenwam.villagerhuts.item;
 
 import java.util.HashSet;
+import java.util.List;
 import java.util.Set;
-import java.util.function.Consumer;
 
 import io.github.nenwam.villagerhuts.entity.WorkerEntity;
 import io.github.nenwam.villagerhuts.job.WorkerJob;
@@ -15,14 +15,12 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.sounds.SoundEvents;
 import net.minecraft.sounds.SoundSource;
 import net.minecraft.world.InteractionResult;
-import net.minecraft.world.entity.EntitySpawnReason;
 import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.item.TooltipFlag;
-import net.minecraft.world.item.component.TooltipDisplay;
 import net.minecraft.world.item.context.UseOnContext;
 import org.jspecify.annotations.Nullable;
 
@@ -52,12 +50,12 @@ public class FarmerItem extends Item {
      * them, follows them until it's given work, and gets a look and a name, different from their other workers' names.
      */
     public static @Nullable WorkerEntity spawnWorker(ServerLevel level, BlockPos pos, @Nullable Player owner, WorkerJob job, ItemStack tool) {
-        WorkerEntity worker = ModEntities.WORKER.get().create(level, EntitySpawnReason.SPAWN_ITEM_USE);
+        WorkerEntity worker = ModEntities.WORKER.get().create(level);
         if (worker == null) {
             return null;
         }
         float facing = owner == null ? 0.0F : owner.getYRot() + 180.0F;
-        worker.snapTo(pos.getX() + 0.5, pos.getY(), pos.getZ() + 0.5, facing, 0.0F);
+        worker.moveTo(pos.getX() + 0.5, pos.getY(), pos.getZ() + 0.5, facing, 0.0F);
         worker.setYHeadRot(facing);
         if (!tool.isEmpty()) {
             worker.setItemSlot(EquipmentSlot.MAINHAND, tool);
@@ -88,14 +86,14 @@ public class FarmerItem extends Item {
         // Like a spawn egg: on top of the clicked face, or in place of tall grass and flowers.
         BlockPos pos = level.getBlockState(clicked).getCollisionShape(level, clicked).isEmpty() ? clicked : clicked.relative(context.getClickedFace());
         if (player != null && (!player.mayBuild() || !level.mayInteract(player, pos))) {
-            player.sendOverlayMessage(Component.translatable("message.villagerhuts.not_allowed"));
+            player.displayClientMessage(Component.translatable("message.villagerhuts.not_allowed"), true);
             return InteractionResult.FAIL;
         }
         if (spawn.spawn(level, pos, player) == null) {
             return InteractionResult.FAIL;
         }
         context.getItemInHand().consume(1, player);
-        return InteractionResult.SUCCESS_SERVER;
+        return InteractionResult.SUCCESS;
     }
 
     interface SpawnWorker {
@@ -103,9 +101,9 @@ public class FarmerItem extends Item {
     }
 
     @Override
-    public void appendHoverText(ItemStack stack, Item.TooltipContext context, TooltipDisplay display, Consumer<Component> builder, TooltipFlag flag) {
-        builder.accept(Component.translatable("item.villagerhuts.farmer.tooltip").withStyle(ChatFormatting.GRAY));
-        builder.accept(Component.translatable("item.villagerhuts.farmer.tooltip.assign").withStyle(ChatFormatting.GRAY));
-        builder.accept(Component.translatable("item.villagerhuts.farmer.tooltip.upgrade").withStyle(ChatFormatting.GRAY));
+    public void appendHoverText(ItemStack stack, Item.TooltipContext context, List<Component> builder, TooltipFlag flag) {
+        builder.add(Component.translatable("item.villagerhuts.farmer.tooltip").withStyle(ChatFormatting.GRAY));
+        builder.add(Component.translatable("item.villagerhuts.farmer.tooltip.assign").withStyle(ChatFormatting.GRAY));
+        builder.add(Component.translatable("item.villagerhuts.farmer.tooltip.upgrade").withStyle(ChatFormatting.GRAY));
     }
 }

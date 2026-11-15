@@ -31,7 +31,7 @@ public class VillagerHuts {
         VillagerHutsTests.register(modEventBus); // automated tests: dev/test runs only
 
         // NeoForge creates and loads the config file from this spec.
-        modContainer.registerConfig(ModConfig.Type.LOCAL, Config.SPEC);
+        modContainer.registerConfig(ModConfig.Type.COMMON, Config.SPEC);
     }
 
     // Every living entity needs base stats (health, speed, ...) registered here.

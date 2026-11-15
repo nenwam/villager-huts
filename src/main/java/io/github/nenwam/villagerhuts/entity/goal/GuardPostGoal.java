@@ -65,7 +65,7 @@ public class GuardPostGoal extends Goal implements DescribesActivity {
         if (!this.atPost) {
             return Component.translatable("activity.villagerhuts.going_to_post");
         }
-        return Component.translatable(this.worker.level().isDarkOutside() ? "activity.villagerhuts.keeping_watch" : "activity.villagerhuts.guarding");
+        return Component.translatable(this.worker.level().isNight() ? "activity.villagerhuts.keeping_watch" : "activity.villagerhuts.guarding");
     }
 
     @Override
@@ -93,6 +93,6 @@ public class GuardPostGoal extends Goal implements DescribesActivity {
             }
         }
         int wait = PATROL_TICKS + this.worker.getRandom().nextInt(100);
-        this.nextMoveTick = this.worker.tickCount + (this.worker.level().isDarkOutside() ? wait * 2 : wait);
+        this.nextMoveTick = this.worker.tickCount + (this.worker.level().isNight() ? wait * 2 : wait);
     }
 }

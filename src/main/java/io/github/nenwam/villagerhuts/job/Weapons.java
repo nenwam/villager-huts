@@ -9,7 +9,10 @@ import net.minecraft.world.item.CrossbowItem;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.ProjectileWeaponItem;
 import net.minecraft.world.item.TridentItem;
-import net.minecraft.world.item.component.Consumable;
+import net.minecraft.world.entity.ai.attributes.Attributes;
+import net.minecraft.world.food.FoodProperties;
+import net.minecraft.world.item.DiggerItem;
+import net.minecraft.world.item.SwordItem;
 import net.neoforged.neoforge.common.Tags;
 
 /**
@@ -18,8 +21,8 @@ import net.neoforged.neoforge.common.Tags;
  *  - ranged: anything that shoots projectiles (bows, crossbows and their modded relatives all extend
  *    ProjectileWeaponItem), or is in the villagerhuts:ranger_weapons tag (bows, crossbows, tridents, and
  *    everything in c:tools/ranged_weapon, the tag mods put their ranged weapons in);
- *  - melee: anything else in the villagerhuts:warrior_weapons tag (swords, axes, spears, maces, and everything in
- *    c:tools/melee_weapon), or any other item made for hitting things (it has the weapon component) that isn't a
+ *  - melee: anything else in the villagerhuts:warrior_weapons tag (swords, axes, maces, and everything in
+ *    c:tools/melee_weapon), any sword (modded ones included), or any other item that adds attack damage and isn't a
  *    digging or farming tool.
  * Tridents are both; fighters throw them, so they're ranged here.
  */
@@ -36,13 +39,18 @@ public final class Weapons {
         if (stack.is(ModTags.WARRIOR_WEAPONS)) {
             return true;
         }
-        return stack.has(DataComponents.WEAPON) && !isDiggingTool(stack);
+        return stack.getItem() instanceof SwordItem || (addsAttackDamage(stack) && !isDiggingTool(stack));
     }
 
-    /** Pickaxes, shovels and hoes hit things too (they have the weapon component), but they aren't weapons. */
+    private static boolean addsAttackDamage(ItemStack stack) {
+        return stack.getAttributeModifiers().modifiers().stream()
+                .anyMatch(entry -> entry.attribute().is(Attributes.ATTACK_DAMAGE) && entry.modifier().amount() > 0);
+    }
+
+    /** Pickaxes, shovels and hoes hit things too (they add attack damage), but they aren't weapons. */
     private static boolean isDiggingTool(ItemStack stack) {
-        return stack.is(Tags.Items.MINING_TOOL_TOOLS) || stack.is(ItemTags.PICKAXES) || stack.is(ItemTags.SHOVELS)
-                || stack.is(ItemTags.HOES) || stack.is(ModTags.FARMER_TOOLS);
+        return (stack.getItem() instanceof DiggerItem && !stack.is(ItemTags.AXES)) || stack.is(Tags.Items.MINING_TOOL_TOOLS)
+                || stack.is(ItemTags.PICKAXES) || stack.is(ItemTags.SHOVELS) || stack.is(ItemTags.HOES) || stack.is(ModTags.FARMER_TOOLS);
     }
 
     /** Thrown itself rather than shooting something (tridents). Needs no ammo. */
@@ -78,11 +86,8 @@ public final class Weapons {
      * spider eyes, raw chicken and pufferfish (they make you ill), and golden apples and stews with effects (worth more to you).
      */
     public static boolean isPlainFood(ItemStack stack) {
-        if (stack.isEmpty() || !stack.has(DataComponents.FOOD)) {
-            return false;
-        }
-        Consumable consumable = stack.get(DataComponents.CONSUMABLE);
-        return consumable != null && consumable.onConsumeEffects().isEmpty();
+        FoodProperties food = stack.isEmpty() ? null : stack.get(DataComponents.FOOD);
+        return food != null && food.effects().isEmpty();
     }
 
     private Weapons() {}

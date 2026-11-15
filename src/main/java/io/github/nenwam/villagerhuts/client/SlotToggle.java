@@ -3,7 +3,7 @@ package io.github.nenwam.villagerhuts.client;
 import java.util.function.BooleanSupplier;
 import java.util.function.IntSupplier;
 
-import net.minecraft.client.gui.GuiGraphicsExtractor;
+import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.components.Tooltip;
 import net.minecraft.network.chat.Component;
@@ -33,7 +33,7 @@ final class SlotToggle extends Button {
     }
 
     @Override
-    protected void extractContents(GuiGraphicsExtractor graphics, int mouseX, int mouseY, float a) {
+    protected void renderWidget(GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
         boolean on = this.isOn.getAsBoolean();
         if (!Boolean.valueOf(on).equals(this.shownState)) { // keep the hint in step with the state
             this.shownState = on;
@@ -45,6 +45,6 @@ final class SlotToggle extends Button {
         if (this.isHoveredOrFocused()) {
             graphics.fill(this.getX() + 1, this.getY() + 1, this.getX() + 17, this.getY() + 17, NativeStyle.SLOT_HOVER);
         }
-        graphics.item(on ? ON_ICON : OFF_ICON, this.getX() + 1, this.getY() + 1);
+        graphics.renderItem(on ? ON_ICON : OFF_ICON, this.getX() + 1, this.getY() + 1);
     }
 }

@@ -18,15 +18,13 @@ import io.github.nenwam.villagerhuts.network.WorkerListPayload;
 import net.minecraft.client.KeyMapping;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.screens.inventory.InventoryScreen;
-import net.minecraft.resources.Identifier;
 import net.neoforged.api.distmarker.Dist;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.fml.common.EventBusSubscriber;
 import net.neoforged.neoforge.client.event.ClientPlayerNetworkEvent;
 import net.neoforged.neoforge.client.event.ClientTickEvent;
 import net.neoforged.neoforge.client.event.RegisterKeyMappingsEvent;
-import net.neoforged.neoforge.client.network.ClientPacketDistributor;
-import net.neoforged.neoforge.client.network.event.RegisterClientPayloadHandlersEvent;
+import net.neoforged.neoforge.network.PacketDistributor;
 import org.jspecify.annotations.Nullable;
 
 /**
@@ -35,8 +33,11 @@ import org.jspecify.annotations.Nullable;
  */
 @EventBusSubscriber(modid = VillagerHuts.MODID, value = Dist.CLIENT)
 public final class ClientWorkers {
-    public static final KeyMapping.Category KEY_CATEGORY = new KeyMapping.Category(Identifier.fromNamespaceAndPath(VillagerHuts.MODID, "main"));
-    public static final KeyMapping OPEN_SCREEN_KEY = new KeyMapping("key.villagerhuts.workers", InputConstants.Type.KEYBOARD, InputConstants.KEY_J, KEY_CATEGORY);
+    public static final String KEY_CATEGORY = "key.category.villagerhuts.main";
+    // Unbound by default: in the Seed to Stars pack every letter is taken (J is Jet Suit flight). The inventory's
+    // Workers button opens the panel; players can bind a key in Options > Controls.
+    public static final KeyMapping OPEN_SCREEN_KEY = new KeyMapping("key.villagerhuts.workers", InputConstants.Type.KEYSYM,
+            InputConstants.UNKNOWN.getValue(), KEY_CATEGORY);
 
     // One color per worker number (repeats after 12).
     private static final int[] COLORS = {
@@ -61,22 +62,22 @@ public final class ClientWorkers {
     }
 
     public static void request() {
-        ClientPacketDistributor.sendToServer(RequestWorkersPayload.INSTANCE);
+        PacketDistributor.sendToServer(RequestWorkersPayload.INSTANCE);
     }
 
     /** Asks the server to carry out a worker panel button for one of your workers. It replies with a new list. */
     public static void command(UUID worker, WorkerCommandPayload.Command command) {
-        ClientPacketDistributor.sendToServer(new WorkerCommandPayload(worker, command));
+        PacketDistributor.sendToServer(new WorkerCommandPayload(worker, command));
     }
 
     /** Asks the server to rename one of your workers (an empty name removes its name). It replies with a new list. */
     public static void rename(UUID worker, String name) {
-        ClientPacketDistributor.sendToServer(new RenameWorkerPayload(worker, name));
+        PacketDistributor.sendToServer(new RenameWorkerPayload(worker, name));
     }
 
     /** Asks the server to share a worker with a player, stop sharing it, or give it to them. It replies with a new list. */
     public static void share(UUID worker, UUID player, ShareWorkerPayload.Action action) {
-        ClientPacketDistributor.sendToServer(new ShareWorkerPayload(worker, player, action));
+        PacketDistributor.sendToServer(new ShareWorkerPayload(worker, player, action));
     }
 
     /** Called with each new list (the worker panel uses this to refresh). */
@@ -119,25 +120,31 @@ public final class ClientWorkers {
         }
     }
 
-    // ---------------------------------------------------------------- events
-
-    @SubscribeEvent
-    static void registerPayloadHandler(RegisterClientPayloadHandlersEvent event) {
-        event.register(WorkerListPayload.TYPE, (payload, context) -> {
-            List<WorkerInfo> sorted = new ArrayList<>(payload.workers()); // the server's order: yours first
-            workers = List.copyOf(sorted);
-            // Workers that died (no longer listed) lose their highlight.
-            highlighted.removeIf(id -> sorted.stream().noneMatch(w -> w.id().equals(id)));
-            if (listener != null) {
-                listener.run();
-            }
-        });
+    /**
+     * A new list from the server (the network code calls this on the client's main thread: see ModNetwork).
+     * In the server's order: yours first.
+     */
+    public static void receive(WorkerListPayload payload) {
+        List<WorkerInfo> sorted = new ArrayList<>(payload.workers());
+        workers = List.copyOf(sorted);
+        // Workers that died (no longer listed) lose their highlight.
+        highlighted.removeIf(id -> sorted.stream().noneMatch(w -> w.id().equals(id)));
+        if (listener != null) {
+            listener.run();
+        }
     }
 
-    @SubscribeEvent
-    static void registerKeys(RegisterKeyMappingsEvent event) {
-        event.registerCategory(KEY_CATEGORY);
-        event.register(OPEN_SCREEN_KEY);
+    // ---------------------------------------------------------------- events
+
+    /** Registration events come on the mod's own event bus (in 1.21.1 a subscriber class listens on one bus). */
+    @EventBusSubscriber(modid = VillagerHuts.MODID, value = Dist.CLIENT, bus = EventBusSubscriber.Bus.MOD)
+    static final class Registration {
+        @SubscribeEvent
+        static void registerKeys(RegisterKeyMappingsEvent event) {
+            event.register(OPEN_SCREEN_KEY);
+        }
+
+        private Registration() {}
     }
 
     @SubscribeEvent
@@ -145,9 +152,9 @@ public final class ClientWorkers {
         Minecraft minecraft = Minecraft.getInstance();
         // The key opens the inventory with the worker panel showing (works in creative too).
         while (OPEN_SCREEN_KEY.consumeClick()) {
-            if (minecraft.gui.screen() == null && minecraft.player != null) {
+            if (minecraft.screen == null && minecraft.player != null) {
                 WorkerPanel.setOpen(true);
-                minecraft.gui.setScreen(new InventoryScreen(minecraft.player));
+                minecraft.setScreen(new InventoryScreen(minecraft.player));
             }
         }
         if (minecraft.player == null) {
@@ -155,7 +162,7 @@ public final class ClientWorkers {
         }
         // Live updates while the panel is showing; slower refreshes to keep highlights current otherwise.
         ticks++;
-        boolean panelShowing = WorkerPanel.isOpen() && minecraft.gui.screen() instanceof InventoryScreen;
+        boolean panelShowing = WorkerPanel.isOpen() && minecraft.screen instanceof InventoryScreen;
         if (panelShowing ? ticks % PANEL_REFRESH_TICKS == 0 : anyShown() && ticks % HIGHLIGHT_REFRESH_TICKS == 0) {
             request();
         }

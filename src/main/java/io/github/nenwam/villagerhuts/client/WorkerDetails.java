@@ -11,13 +11,13 @@ import io.github.nenwam.villagerhuts.network.WorkerInfo;
 import io.github.nenwam.villagerhuts.registry.ModItems;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
-import net.minecraft.client.gui.GuiGraphicsExtractor;
+import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.AbstractWidget;
 import net.minecraft.client.gui.narration.NarrationElementOutput;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.network.chat.Component;
-import net.minecraft.resources.Identifier;
+import net.minecraft.resources.ResourceLocation;
 import net.minecraft.util.FormattedCharSequence;
 import net.minecraft.util.Mth;
 import net.minecraft.world.item.ItemStack;
@@ -104,7 +104,7 @@ final class WorkerDetails extends AbstractWidget {
     }
 
     @Override
-    protected void extractWidgetRenderState(GuiGraphicsExtractor graphics, int mouseX, int mouseY, float a) {
+    protected void renderWidget(GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
         WorkerInfo info = this.info();
         if (info == null) {
             return;
@@ -117,8 +117,8 @@ final class WorkerDetails extends AbstractWidget {
         // Who: the worker's slot (color, tool, number). Its name and job are in the panel's title.
         ItemStack icon = icon(info);
         NativeStyle.slot(graphics, x, top, ClientWorkers.color(info.number()));
-        graphics.item(icon, x + 1, top + 1);
-        graphics.itemDecorations(font, icon, x + 1, top + 1, String.valueOf(info.number()));
+        graphics.renderItem(icon, x + 1, top + 1);
+        graphics.renderItemDecorations(font, icon, x + 1, top + 1, String.valueOf(info.number()));
 
         // Everything under it scrolls.
         int factsTop = top + this.factsTop;
@@ -137,13 +137,15 @@ final class WorkerDetails extends AbstractWidget {
 
         // Who it has defeated (spawn eggs), then everything it has collected, as grids of slots (no section if none yet).
         List<Slot> defeated = new ArrayList<>();
-        sorted(info.defeated()).forEach(entry -> BuiltInRegistries.ENTITY_TYPE.getOptional(entry.getKey()).ifPresent(type ->
-                defeated.add(new Slot(SpawnEggItem.byId(type).map(egg -> new ItemStack(egg)).orElseGet(() -> new ItemStack(Items.SKELETON_SKULL)),
-                        type.getDescription(), entry.getValue(), "gui.villagerhuts.panel.defeated_count"))));
+        sorted(info.defeated()).forEach(entry -> BuiltInRegistries.ENTITY_TYPE.getOptional(entry.getKey()).ifPresent(type -> {
+            SpawnEggItem egg = SpawnEggItem.byId(type);
+            defeated.add(new Slot(new ItemStack(egg != null ? egg : Items.SKELETON_SKULL), type.getDescription(), entry.getValue(),
+                    "gui.villagerhuts.panel.defeated_count"));
+        }));
         lineY = this.grid(graphics, font, "gui.villagerhuts.details.defeated", defeated, x, lineY, width, mouseInside, mouseX, mouseY);
         List<Slot> collected = new ArrayList<>();
         sorted(info.collected()).forEach(entry -> {
-            ItemStack stack = new ItemStack(BuiltInRegistries.ITEM.getValue(entry.getKey()));
+            ItemStack stack = new ItemStack(BuiltInRegistries.ITEM.get(entry.getKey()));
             collected.add(new Slot(stack, stack.getHoverName(), entry.getValue(), "gui.villagerhuts.panel.collected_count"));
         });
         lineY = this.grid(graphics, font, "gui.villagerhuts.details.collected", collected, x, lineY, width, mouseInside, mouseX, mouseY);
@@ -154,14 +156,14 @@ final class WorkerDetails extends AbstractWidget {
     /** One slot of a grid: an icon, what it is, and how many. */
     private record Slot(ItemStack icon, Component name, int count, String countKey) {}
 
-    private static List<Map.Entry<Identifier, Integer>> sorted(Map<Identifier, Integer> counts) {
-        List<Map.Entry<Identifier, Integer>> entries = new ArrayList<>(counts.entrySet());
-        entries.sort(Map.Entry.<Identifier, Integer>comparingByValue().reversed());
+    private static List<Map.Entry<ResourceLocation, Integer>> sorted(Map<ResourceLocation, Integer> counts) {
+        List<Map.Entry<ResourceLocation, Integer>> entries = new ArrayList<>(counts.entrySet());
+        entries.sort(Map.Entry.<ResourceLocation, Integer>comparingByValue().reversed());
         return entries;
     }
 
     // A heading and a grid of slots with counts (nothing at all if there are none). Returns the y below it.
-    private int grid(GuiGraphicsExtractor graphics, Font font, String label, List<Slot> slots, int x, int lineY, int width,
+    private int grid(GuiGraphics graphics, Font font, String label, List<Slot> slots, int x, int lineY, int width,
                      boolean mouseInside, int mouseX, int mouseY) {
         if (slots.isEmpty()) {
             return lineY;
@@ -175,11 +177,11 @@ final class WorkerDetails extends AbstractWidget {
             int slotX = x + (i % columns) * 18;
             int slotY = lineY + (i / columns) * 18;
             NativeStyle.slot(graphics, slotX, slotY);
-            graphics.item(slot.icon(), slotX + 1, slotY + 1);
-            graphics.itemDecorations(font, slot.icon(), slotX + 1, slotY + 1, WorkerList.shortCount(slot.count()));
+            graphics.renderItem(slot.icon(), slotX + 1, slotY + 1);
+            graphics.renderItemDecorations(font, slot.icon(), slotX + 1, slotY + 1, WorkerList.shortCount(slot.count()));
             if (mouseInside && mouseX >= slotX && mouseX < slotX + 18 && mouseY >= slotY && mouseY < slotY + 18) {
-                graphics.setTooltipForNextFrame(List.of(slot.name().getVisualOrderText(),
-                        Component.translatable(slot.countKey(), slot.count()).getVisualOrderText()), mouseX, mouseY);
+                NativeStyle.tooltip(List.of(slot.name().getVisualOrderText(),
+                        Component.translatable(slot.countKey(), slot.count()).getVisualOrderText()));
             }
         }
         return lineY + ((slots.size() + columns - 1) / columns) * 18;

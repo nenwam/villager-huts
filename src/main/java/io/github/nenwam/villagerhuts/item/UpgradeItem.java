@@ -1,6 +1,6 @@
 package io.github.nenwam.villagerhuts.item;
 
-import java.util.function.Consumer;
+import java.util.List;
 
 import io.github.nenwam.villagerhuts.entity.WorkerEntity;
 import net.minecraft.ChatFormatting;
@@ -8,7 +8,6 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.TooltipFlag;
-import net.minecraft.world.item.component.TooltipDisplay;
 
 /**
  * Raises a worker's level: right-click the worker holding enough of them (see WorkerEntity.upgradeFrom).
@@ -21,12 +20,12 @@ public class UpgradeItem extends Item {
     }
 
     @Override
-    public void appendHoverText(ItemStack stack, Item.TooltipContext context, TooltipDisplay display, Consumer<Component> builder, TooltipFlag flag) {
-        builder.accept(Component.translatable("item.villagerhuts.upgrade.tooltip").withStyle(ChatFormatting.GRAY));
+    public void appendHoverText(ItemStack stack, Item.TooltipContext context, List<Component> builder, TooltipFlag flag) {
+        builder.add(Component.translatable("item.villagerhuts.upgrade.tooltip").withStyle(ChatFormatting.GRAY));
         for (int rank = 1; rank < WorkerEntity.MAX_RANK; rank++) {
             WorkerEntity.Upgrade upgrade = WorkerEntity.upgradeFrom(rank);
             if (upgrade != null && stack.is(upgrade.item().asItem())) {
-                builder.accept(Component.translatable("item.villagerhuts.upgrade.tooltip.level",
+                builder.add(Component.translatable("item.villagerhuts.upgrade.tooltip.level",
                         WorkerEntity.rankName(rank + 1), upgrade.describe()).withStyle(ChatFormatting.GRAY));
             }
         }

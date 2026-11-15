@@ -1,6 +1,7 @@
 # Villager Huts
 
-A NeoForge mod for Minecraft 26.3: hire workers, give each one somewhere to work, a chest and a bed, and they get
+A NeoForge mod for Minecraft 1.21.1 (NeoForge 21.1.265, the Seed to Stars modpack's version; the `main` branch is the
+Minecraft 26.3 version): hire workers, give each one somewhere to work, a chest and a bed, and they get
 on with it. Farmers look after a farm (or make one); fighters, Sikh warriors and rangers, guard a post, or you.
 Works in multiplayer: workers belong to the player who hired them, who can share them with friends.
 
@@ -14,7 +15,7 @@ Works in multiplayer: workers belong to the player who hired them, who can share
 | `./gradlew runData` | Run data generators into `src/generated/resources` |
 | `./gradlew runGameTestServer` | Run the automated in-game tests (fails if any test fails) |
 
-Requires JDK 25.
+Builds with Java 21 (Gradle downloads it if needed).
 
 ## How to play
 
@@ -53,11 +54,12 @@ Requires JDK 25.
   A **Diamond Carrot** is a carrot surrounded by eight diamonds; a **Flawless Diamond Carrot** is a carrot
   surrounded by eight diamond blocks. (The 64 a day is the `farmerDailyHarvest` setting; each level adds that
   much again.) Fighters also swing and shoot faster with each level, and rangers' shots go straighter.
-- **Worker panel:** the **Workers** button in the survival inventory opens a panel beside it (the **J** key
-  opens the inventory with the panel, also in creative). It lists all your workers, then the ones shared with
-  you: live status, days worked, what they're carrying and have collected; click a worker's book for its details
-  page (level, today's harvest, what the next level costs, farm, chest and bed; for a fighter, its health and
-  damage, weapon, ammo, post, and a grid of who it has defeated; scroll if it doesn't all fit).
+- **Worker panel:** the **Workers** button in the survival inventory opens a panel beside it. It has no key by
+  default (every letter is taken in the Seed to Stars pack); bind **Open Worker Panel** in Options → Controls to open
+  the inventory with the panel, also in creative. It lists all your workers, then the ones shared with you: live
+  status, days worked, what they're carrying and have collected; click a worker's book for its details page
+  (level, today's harvest, what the next level costs, farm, chest and bed; for a fighter, its health and damage,
+  weapon, ammo, post, and a grid of who it has defeated; scroll if it doesn't all fit).
   **Show** highlights a worker's farm (or guard area), chest and bed in its color, with its number above each and
   above the worker's head; **Show all** does every worker. On a details page:
   - the **name tag** renames the worker: type a name and press Enter (Esc cancels; an empty name removes it).
@@ -107,6 +109,9 @@ Requires JDK 25.
     health), they go to bed to recover, and heal fast there.
   - **Night watch:** fighters keep watch at their post all night, then sleep in their bed from sunrise until
     noon. Anything coming near wakes them.
+- **Other mods:** farmers also plant Pam's HarvestCraft seeds and Farmer's Delight cabbages and onions, when those mods
+  are installed (normal crops on farmland only: not rice, tomatoes or fruit trees). Workers are tagged
+  `c:capturing_not_supported`, so Carry On (and other mods that pick up mobs) can't carry them off.
 - **Seeds and bone meal:** farmers start with no seeds. Put seeds (wheat seeds, carrots, potatoes, beetroot
   seeds...) in their chest; the farmer fetches them and plants the empty farmland. Put bone meal in the chest
   and they use it on their growing crops.

@@ -6,7 +6,7 @@ import io.github.nenwam.villagerhuts.entity.WorkerEntity;
 import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
 import net.minecraft.world.entity.ai.goal.Goal;
-import net.minecraft.world.level.block.AbstractBedBlock;
+import net.minecraft.world.level.block.BedBlock;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.pathfinder.Path;
 import net.minecraft.world.phys.Vec3;
@@ -37,7 +37,7 @@ public class ShelterAtNightGoal extends Goal implements DescribesActivity {
 
     @Override
     public boolean canUse() {
-        return !this.worker.getJob().isArmed() && this.worker.level().isDarkOutside()
+        return !this.worker.getJob().isArmed() && this.worker.level().isNight()
                 && (this.worker.hasBed() || this.worker.getShelterPos() != null);
     }
 
@@ -99,7 +99,7 @@ public class ShelterAtNightGoal extends Goal implements DescribesActivity {
             return;
         }
         BlockState state = this.worker.level().getBlockState(bed);
-        this.bedTaken = state.getBlock() instanceof AbstractBedBlock && state.getValue(AbstractBedBlock.OCCUPIED);
+        this.bedTaken = state.getBlock() instanceof BedBlock && state.getValue(BedBlock.OCCUPIED);
         boolean close = bed.closerToCenterThan(this.worker.position(), BED_REACH) && WorkReach.canTouch(this.worker, bed, BED_REACH);
         if (close && !this.bedTaken) {
             this.worker.getNavigation().stop();

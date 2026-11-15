@@ -2,7 +2,7 @@ package io.github.nenwam.villagerhuts.client;
 
 import io.github.nenwam.villagerhuts.VillagerHuts;
 import io.github.nenwam.villagerhuts.registry.ModItems;
-import net.minecraft.client.gui.GuiGraphicsExtractor;
+import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.AbstractWidget;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.components.Tooltip;
@@ -78,7 +78,7 @@ public final class InventoryButton {
 
     private static boolean overlapsAnotherWidget(InventoryScreen screen, AbstractWidget self, ScreenRectangle area) {
         for (GuiEventListener child : screen.children()) {
-            if (child != self && child instanceof AbstractWidget widget && widget.visible && widget.getRectangle().intersects(area)) {
+            if (child != self && child instanceof AbstractWidget widget && widget.visible && widget.getRectangle().overlaps(area)) {
                 return true;
             }
         }
@@ -99,7 +99,7 @@ public final class InventoryButton {
         }
 
         @Override
-        protected void extractContents(GuiGraphicsExtractor graphics, int mouseX, int mouseY, float a) {
+        protected void renderWidget(GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
             boolean open = WorkerPanel.isOpen();
             if (!Boolean.valueOf(open).equals(this.shownState)) {
                 this.shownState = open;
@@ -116,7 +116,7 @@ public final class InventoryButton {
                 graphics.fill(x + 1, y + 1, x + this.width - 1, y + this.height - 1, 0x30FFFFFF);
             }
             int pushed = open ? 1 : 0; // the icon sinks a pixel when pressed in
-            graphics.item(this.icon, x + 2 + pushed, y + 1 + pushed);
+            graphics.renderItem(this.icon, x + 2 + pushed, y + 1 + pushed);
         }
     }
 

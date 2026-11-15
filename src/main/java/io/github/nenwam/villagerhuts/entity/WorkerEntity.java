@@ -7,6 +7,7 @@ import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.function.Predicate;
@@ -33,8 +34,8 @@ import net.minecraft.world.entity.ai.attributes.AttributeModifier;
 import net.minecraft.world.entity.monster.CrossbowAttackMob;
 import net.minecraft.world.entity.projectile.Projectile;
 import net.minecraft.world.entity.projectile.ProjectileUtil;
-import net.minecraft.world.entity.projectile.arrow.AbstractArrow;
-import net.minecraft.world.entity.projectile.arrow.ThrownTrident;
+import net.minecraft.world.entity.projectile.AbstractArrow;
+import net.minecraft.world.entity.projectile.ThrownTrident;
 import net.minecraft.world.food.FoodProperties;
 import net.minecraft.world.item.ArrowItem;
 import net.minecraft.world.item.CrossbowItem;
@@ -77,7 +78,7 @@ import net.minecraft.world.InteractionResult;
 import net.minecraft.world.Container;
 import net.minecraft.world.SimpleContainer;
 import net.minecraft.world.damagesource.DamageSource;
-import net.minecraft.world.entity.EntitySpawnReason;
+import net.minecraft.world.entity.MobSpawnType;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.entity.Mob;
@@ -103,11 +104,13 @@ import net.minecraft.world.level.block.CropBlock;
 import net.minecraft.world.level.block.entity.HopperBlockEntity;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
-import net.minecraft.resources.Identifier;
+import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.levelgen.structure.BoundingBox;
-import net.minecraft.world.level.storage.ValueInput;
-import net.minecraft.world.level.storage.ValueOutput;
+import net.minecraft.nbt.CompoundTag;
+import net.minecraft.nbt.NbtOps;
+import net.minecraft.nbt.Tag;
+import net.minecraft.world.entity.ai.navigation.GroundPathNavigation;
 import net.minecraft.world.phys.Vec3;
 import org.jspecify.annotations.Nullable;
 
@@ -159,14 +162,14 @@ public class WorkerEntity extends PathfinderMob implements InventoryCarrier, Cro
     private static final int SHELTER_SEARCH_RADIUS = 6;
     private static final int SHELTER_RETRY_TICKS = 1200;
     private static final long DAY_TICKS = 24000L;
-    private static final Codec<Map<Identifier, Integer>> COLLECTED_CODEC = Codec.unboundedMap(Identifier.CODEC, Codec.INT);
+    private static final Codec<Map<ResourceLocation, Integer>> COLLECTED_CODEC = Codec.unboundedMap(ResourceLocation.CODEC, Codec.INT);
 
     /** Novice (1) to Master (5), like villagers. Each rank adds a day's harvest (Config farmerDailyHarvest). */
     public static final int MAX_RANK = 5;
     /** Every worker's health (a farmer's at any rank, a fighter's at Novice), and how much each rank adds to a fighter's. */
     public static final int BASE_HEALTH = 20;
     public static final int FIGHTER_HEALTH_PER_RANK = 5;
-    private static final Identifier RANK_DAMAGE = Identifier.fromNamespaceAndPath(VillagerHuts.MODID, "rank_damage");
+    private static final ResourceLocation RANK_DAMAGE = ResourceLocation.fromNamespaceAndPath(VillagerHuts.MODID, "rank_damage");
     private static final int EAT_TICKS = 40;           // between bites of food
     private static final int REGEN_TICKS = 200;        // fighters heal 1 health this often when not fighting
     private static final int BED_REGEN_TICKS = 20;     // and this often in bed
@@ -197,8 +200,8 @@ public class WorkerEntity extends PathfinderMob implements InventoryCarrier, Cro
     private int harvestedToday;
     private boolean doneForToday;
     private int lastWorkTick = -IDLE_TICKS;
-    private final Map<Identifier, Integer> collected = new LinkedHashMap<>();
-    private final Map<Identifier, Integer> defeated = new LinkedHashMap<>(); // entity type -> how many (fighters)
+    private final Map<ResourceLocation, Integer> collected = new LinkedHashMap<>();
+    private final Map<ResourceLocation, Integer> defeated = new LinkedHashMap<>(); // entity type -> how many (fighters)
     private @Nullable BlockPos guardPost; // fighters: where they stand guard
     private boolean recovering;           // fighters: badly hurt, resting in bed until healed
     private int nextEatTick;
@@ -271,7 +274,7 @@ public class WorkerEntity extends PathfinderMob implements InventoryCarrier, Cro
 
     public WorkerEntity(EntityType<? extends WorkerEntity> type, Level level) {
         super(type, level);
-        this.getNavigation().setCanOpenDoors(true);
+        ((GroundPathNavigation) this.getNavigation()).setCanOpenDoors(true);
     }
 
     public static AttributeSupplier.Builder createAttributes() {
@@ -344,7 +347,7 @@ public class WorkerEntity extends PathfinderMob implements InventoryCarrier, Cro
     // Summoned with a command or a spawn egg: give it a look and name too. (The Farmer item does this itself,
     // so it can avoid the names of its owner's other workers.)
     @Override
-    public @Nullable SpawnGroupData finalizeSpawn(ServerLevelAccessor level, DifficultyInstance difficulty, EntitySpawnReason reason,
+    public @Nullable SpawnGroupData finalizeSpawn(ServerLevelAccessor level, DifficultyInstance difficulty, MobSpawnType reason,
                                                   @Nullable SpawnGroupData groupData) {
         if (!this.hasCustomName()) {
             this.giveIdentity(Set.of());
@@ -400,23 +403,25 @@ public class WorkerEntity extends PathfinderMob implements InventoryCarrier, Cro
         }
     }
 
-    // Nobody but its owner and the players it's shared with can use it: not even a lead or a name tag.
-    @Override
-    public InteractionResult interact(Player player, InteractionHand hand, Vec3 location) {
-        if (this.isAlive() && this.level() instanceof ServerLevel level && !this.canCommand(player)) {
-            if (hand == InteractionHand.MAIN_HAND && this.ownerId != null) {
-                player.sendOverlayMessage(Component.translatable("message.villagerhuts.not_owner",
-                        this.getDisplayName(), WorkerRoster.playerName(level.getServer(), this.ownerId)));
-            }
-            return InteractionResult.CONSUME;
+    /**
+     * Nobody but its owner and the players it's shared with can use it: not even a lead or a name tag. Returns true
+     * (and tells the player whose it is) if this player can't (see WorkerProtection, which stops the interaction).
+     */
+    public boolean turnsAway(Player player, InteractionHand hand) {
+        if (!this.isAlive() || this.canCommand(player)) {
+            return false;
         }
-        return super.interact(player, hand, location);
+        if (this.level() instanceof ServerLevel level && hand == InteractionHand.MAIN_HAND && this.ownerId != null) {
+            player.displayClientMessage(Component.translatable("message.villagerhuts.not_owner",
+                    this.getDisplayName(), WorkerRoster.playerName(level.getServer(), this.ownerId)), true);
+        }
+        return true;
     }
 
     // Other players' hits and arrows don't hurt it (its owner's do).
     @Override
-    public boolean isInvulnerableTo(ServerLevel level, DamageSource source) {
-        return super.isInvulnerableTo(level, source)
+    public boolean isInvulnerableTo(DamageSource source) {
+        return super.isInvulnerableTo(source)
                 || (Config.PROTECT_WORKERS.getAsBoolean() && this.ownerId != null
                 && source.getEntity() instanceof Player attacker && !this.isOwner(attacker));
     }
@@ -470,8 +475,8 @@ public class WorkerEntity extends PathfinderMob implements InventoryCarrier, Cro
     }
 
     private static void giveTo(Player player, ItemStack stack) {
-        if (!stack.isEmpty() && !player.getInventory().add(stack) && player.level() instanceof ServerLevel level) {
-            player.spawnAtLocation(level, stack); // no room: at their feet
+        if (!stack.isEmpty() && !player.getInventory().add(stack)) {
+            player.drop(stack, false); // no room: at their feet
         }
     }
 
@@ -628,16 +633,16 @@ public class WorkerEntity extends PathfinderMob implements InventoryCarrier, Cro
     // Following or staying: no limits (the order decides where it goes).
     private void updateHomeArea() {
         if (this.order != Order.WORK) {
-            this.clearHome();
+            this.clearRestriction();
             return;
         }
         BoundingBox area = include(include(this.getWorkArea(), this.storagePos), this.bedPos);
         if (area == null) {
-            this.clearHome();
+            this.clearRestriction();
             return;
         }
         int radius = Math.max(area.getXSpan(), area.getZSpan()) / 2 + 2;
-        this.setHomeTo(area.getCenter(), radius);
+        this.restrictTo(area.getCenter(), radius);
         AttributeInstance followRange = this.getAttribute(Attributes.FOLLOW_RANGE);
         if (followRange != null) {
             followRange.setBaseValue(Math.max(BASE_FOLLOW_RANGE, Math.max(area.getXSpan(), area.getZSpan()) + 8));
@@ -664,7 +669,7 @@ public class WorkerEntity extends PathfinderMob implements InventoryCarrier, Cro
      */
     public @Nullable BlockPos getShelterPos() {
         if (this.shelterPos == null && this.storagePos != null && this.tickCount >= this.nextShelterSearchTick
-                && !this.level().isClientSide()) {
+                && !this.level().isClientSide) {
             this.nextShelterSearchTick = this.tickCount + SHELTER_RETRY_TICKS;
             BlockPos chest = this.storagePos;
             int r = SHELTER_SEARCH_RADIUS;
@@ -812,7 +817,7 @@ public class WorkerEntity extends PathfinderMob implements InventoryCarrier, Cro
 
     // A new day starts each morning (when the sun comes up).
     private void startNewDayIfDue() {
-        long day = Math.floorDiv(this.level().getOverworldClockTime(), DAY_TICKS);
+        long day = Math.floorDiv(this.level().getDayTime(), DAY_TICKS);
         if (day != this.harvestDay) {
             this.harvestDay = day;
             this.harvestedToday = 0;
@@ -824,17 +829,17 @@ public class WorkerEntity extends PathfinderMob implements InventoryCarrier, Cro
     private InteractionResult upgrade(ServerLevel level, Player player, ItemStack carrots) {
         Upgrade upgrade = upgradeFrom(this.rank);
         if (upgrade == null) {
-            player.sendOverlayMessage(Component.translatable("message.villagerhuts.max_rank", this.getDisplayName()));
+            player.displayClientMessage(Component.translatable("message.villagerhuts.max_rank", this.getDisplayName()), true);
             return InteractionResult.CONSUME;
         }
         if (!carrots.is(upgrade.item().asItem())) {
-            player.sendOverlayMessage(Component.translatable("message.villagerhuts.upgrade_needs_other", upgrade.describe(),
-                    rankName(this.rank + 1)));
+            player.displayClientMessage(Component.translatable("message.villagerhuts.upgrade_needs_other", upgrade.describe(),
+                    rankName(this.rank + 1)), true);
             return InteractionResult.CONSUME;
         }
         if (carrots.getCount() < upgrade.count()) {
-            player.sendOverlayMessage(Component.translatable("message.villagerhuts.upgrade_needs", upgrade.describe(),
-                    rankName(this.rank + 1), carrots.getCount()));
+            player.displayClientMessage(Component.translatable("message.villagerhuts.upgrade_needs", upgrade.describe(),
+                    rankName(this.rank + 1), carrots.getCount()), true);
             return InteractionResult.CONSUME;
         }
         carrots.consume(upgrade.count(), player);
@@ -844,14 +849,14 @@ public class WorkerEntity extends PathfinderMob implements InventoryCarrier, Cro
         level.sendParticles(ParticleTypes.HAPPY_VILLAGER, this.getX(), this.getEyeY() + 0.3, this.getZ(), 15, 0.5, 0.5, 0.5, 0.0);
         if (this.getJob().isFighter()) {
             this.heal(FIGHTER_HEALTH_PER_RANK); // the new health comes filled
-            player.sendOverlayMessage(Component.translatable("message.villagerhuts.upgraded_fighter", this.getDisplayName(),
-                    rankName(this.rank), fighterHealth(this.rank), fighterDamageBonus(this.rank)));
+            player.displayClientMessage(Component.translatable("message.villagerhuts.upgraded_fighter", this.getDisplayName(),
+                    rankName(this.rank), fighterHealth(this.rank), fighterDamageBonus(this.rank)), true);
         } else {
-            player.sendOverlayMessage(Component.translatable("message.villagerhuts.upgraded", this.getDisplayName(),
-                    rankName(this.rank), this.getDailyLimit()));
+            player.displayClientMessage(Component.translatable("message.villagerhuts.upgraded", this.getDisplayName(),
+                    rankName(this.rank), this.getDailyLimit()), true);
         }
         WorkerRoster.get(level.getServer()).update(this);
-        return InteractionResult.SUCCESS_SERVER;
+        return InteractionResult.SUCCESS;
     }
 
     // ------------------------------------------------------------------ jobs
@@ -862,7 +867,7 @@ public class WorkerEntity extends PathfinderMob implements InventoryCarrier, Cro
 
     public void setJob(WorkerJob job) {
         this.entityData.set(DATA_JOB, job.id());
-        if (!this.level().isClientSide()) {
+        if (!this.level().isClientSide) {
             if (!job.isArmed()) {
                 this.setTarget(null);
             }
@@ -879,7 +884,7 @@ public class WorkerEntity extends PathfinderMob implements InventoryCarrier, Cro
         return this.getJob().isArmed() && (!this.isRanger() || this.hasAmmo());
     }
 
-    // Only players who can use it get here (see interact).
+    // Only players who can use it get here (see turnsAway).
     @Override
     protected InteractionResult mobInteract(Player player, InteractionHand hand) {
         ItemStack held = player.getItemInHand(hand);
@@ -902,13 +907,13 @@ public class WorkerEntity extends PathfinderMob implements InventoryCarrier, Cro
 
         if (offeredJob != null && !job.hasTool()) {
             this.equip(level, player, held, offeredJob);
-            player.sendOverlayMessage(Component.translatable("message.villagerhuts.job_assigned", offeredJob.displayName()));
-            return InteractionResult.SUCCESS_SERVER;
+            player.displayClientMessage(Component.translatable("message.villagerhuts.job_assigned", offeredJob.displayName()), true);
+            return InteractionResult.SUCCESS;
         }
         if (offeredJob != null && job.isFighter()) {
             // An armed fighter handed another weapon: its owner swaps them (and gets the old one back).
             if (!this.isOwner(player) && this.ownerId != null) {
-                player.sendOverlayMessage(Component.translatable("message.villagerhuts.owner_swaps_weapons", this.getDisplayName()));
+                player.displayClientMessage(Component.translatable("message.villagerhuts.owner_swaps_weapons", this.getDisplayName()), true);
                 return InteractionResult.CONSUME;
             }
             if (this.isUsingItem()) {
@@ -917,16 +922,16 @@ public class WorkerEntity extends PathfinderMob implements InventoryCarrier, Cro
             ItemStack old = this.getMainHandItem().copy();
             this.equip(level, player, held, offeredJob);
             giveTo(player, old);
-            player.sendOverlayMessage(Component.translatable("message.villagerhuts.weapon_swapped", this.getDisplayName(),
-                    offeredJob.displayName(), this.getMainHandItem().getHoverName()));
-            return InteractionResult.SUCCESS_SERVER;
+            player.displayClientMessage(Component.translatable("message.villagerhuts.weapon_swapped", this.getDisplayName(),
+                    offeredJob.displayName(), this.getMainHandItem().getHoverName()), true);
+            return InteractionResult.SUCCESS;
         }
 
         if (player instanceof ServerPlayer serverPlayer) {
             // Next: right-click a farm (or post), chest or bed; or, sneaking, the ground for a new farm (farmers).
             WorkerAssigning.toggle(serverPlayer, this, held.isEmpty() && player.isSecondaryUseActive());
         }
-        return InteractionResult.SUCCESS_SERVER;
+        return InteractionResult.SUCCESS;
     }
 
     // Takes one of the held item as its tool, and the job that goes with it.
@@ -954,13 +959,13 @@ public class WorkerEntity extends PathfinderMob implements InventoryCarrier, Cro
         ItemStack rest = this.inventory.addItem(held.copy());
         int taken = held.getCount() - rest.getCount();
         if (taken == 0) {
-            player.sendOverlayMessage(Component.translatable("message.villagerhuts.pockets_full", this.getDisplayName()));
+            player.displayClientMessage(Component.translatable("message.villagerhuts.pockets_full", this.getDisplayName()), true);
             return InteractionResult.CONSUME;
         }
         held.consume(taken, player);
         this.playSound(SoundEvents.ITEM_PICKUP, 0.5F, 1.0F);
-        player.sendOverlayMessage(Component.translatable("message.villagerhuts.supplies_taken", this.getDisplayName(), taken, what));
-        return InteractionResult.SUCCESS_SERVER;
+        player.displayClientMessage(Component.translatable("message.villagerhuts.supplies_taken", this.getDisplayName(), taken, what), true);
+        return InteractionResult.SUCCESS;
     }
 
     // ------------------------------------------------------------------ fighting
@@ -985,8 +990,7 @@ public class WorkerEntity extends PathfinderMob implements InventoryCarrier, Cro
     }
 
     // Shots spread less as it levels up: from a skeleton's on Normal (6) at Novice to dead straight at Master.
-    @Override
-    public float rangedAttackUncertainty(Level level) {
+    private float spread() {
         return 6.0F - 1.5F * (this.rank - 1);
     }
 
@@ -1026,11 +1030,11 @@ public class WorkerEntity extends PathfinderMob implements InventoryCarrier, Cro
 
     // A warrior's blow: the weapon's damage and enchantments count, but the weapon doesn't wear out.
     @Override
-    public boolean doHurtTarget(ServerLevel level, Entity target) {
+    public boolean doHurtTarget(Entity target) {
         ItemStack weapon = this.getMainHandItem();
         int damage = weapon.getDamageValue();
         ItemStack backup = weapon.copy();
-        boolean hit = super.doHurtTarget(level, target);
+        boolean hit = super.doHurtTarget(target);
         this.keepWeapon(weapon, damage, backup);
         if (hit) {
             this.markWorked();
@@ -1110,7 +1114,18 @@ public class WorkerEntity extends PathfinderMob implements InventoryCarrier, Cro
         double dy = target.getY(1.0 / 3.0) - projectile.getY();
         double dz = target.getZ() - this.getZ();
         double flat = Math.sqrt(dx * dx + dz * dz);
-        Projectile.spawnProjectileUsingShoot(projectile, level, item, dx, dy + flat * 0.2, dz, velocity, this.rangedAttackUncertainty(level));
+        projectile.shoot(dx, dy + flat * 0.2, dz, velocity, this.spread());
+        level.addFreshEntity(projectile);
+    }
+
+    // A crossbow fires what it's loaded with (Multishot, Piercing and fireworks included), with the worker's spread.
+    @Override
+    public void performCrossbowAttack(LivingEntity user, float velocity) {
+        ItemStack crossbow = this.getMainHandItem();
+        if (crossbow.getItem() instanceof CrossbowItem crossbowItem) {
+            crossbowItem.performShooting(this.level(), this, InteractionHand.MAIN_HAND, crossbow, velocity, this.spread(), this.getTarget());
+        }
+        this.onCrossbowAttackPerformed();
     }
 
     @Override
@@ -1141,7 +1156,7 @@ public class WorkerEntity extends PathfinderMob implements InventoryCarrier, Cro
 
     /** Sunrise to noon, after a night's watch: fighters with a bed sleep then. */
     public boolean isMorningAfterWatch() {
-        return !this.level().isDarkOutside() && Math.floorMod(this.level().getOverworldClockTime(), DAY_TICKS) < MORNING_END;
+        return !this.level().isNight() && Math.floorMod(this.level().getDayTime(), DAY_TICKS) < MORNING_END;
     }
 
     // Eat when hurt (between fights), heal slowly anyway, and quickly in bed.
@@ -1171,10 +1186,10 @@ public class WorkerEntity extends PathfinderMob implements InventoryCarrier, Cro
                 FoodProperties food = stack.get(DataComponents.FOOD);
                 this.heal(food == null ? 1.0F : Math.max(1, food.nutrition()));
                 if (this.level() instanceof ServerLevel level) {
-                    level.sendParticles(new ItemParticleOption(ParticleTypes.ITEM, stack.getItem()),
+                    level.sendParticles(new ItemParticleOption(ParticleTypes.ITEM, stack.copyWithCount(1)),
                             this.getX(), this.getEyeY() - 0.2, this.getZ(), 6, 0.15, 0.1, 0.15, 0.05);
                 }
-                this.playSound(SoundEvents.GENERIC_EAT.value(), 0.6F, 1.0F);
+                this.playSound(SoundEvents.GENERIC_EAT, 0.6F, 1.0F);
                 stack.shrink(1);
                 this.nextEatTick = this.tickCount + EAT_TICKS;
                 return;
@@ -1193,7 +1208,7 @@ public class WorkerEntity extends PathfinderMob implements InventoryCarrier, Cro
     public void storeOrDrop(ServerLevel level, ItemStack stack) {
         ItemStack rest = this.inventory.addItem(stack);
         if (!rest.isEmpty()) {
-            this.spawnAtLocation(level, rest);
+            this.spawnAtLocation(rest);
         }
     }
 
@@ -1225,7 +1240,7 @@ public class WorkerEntity extends PathfinderMob implements InventoryCarrier, Cro
         }
     }
 
-    public Map<Identifier, Integer> getCollected() {
+    public Map<ResourceLocation, Integer> getCollected() {
         return this.collected;
     }
 
@@ -1236,7 +1251,7 @@ public class WorkerEntity extends PathfinderMob implements InventoryCarrier, Cro
     }
 
     /** Entity type -> how many of them it has defeated. */
-    public Map<Identifier, Integer> getDefeated() {
+    public Map<ResourceLocation, Integer> getDefeated() {
         return this.defeated;
     }
 
@@ -1510,71 +1525,99 @@ public class WorkerEntity extends PathfinderMob implements InventoryCarrier, Cro
 
     // Drop carried items on death, as well as the tool.
     @Override
-    protected void dropEquipment(ServerLevel level) {
-        super.dropEquipment(level);
-        this.inventory.removeAllItems().forEach(stack -> this.spawnAtLocation(level, stack));
+    protected void dropEquipment() {
+        super.dropEquipment();
+        this.inventory.removeAllItems().forEach(this::spawnAtLocation);
     }
 
     @Override
-    protected void addAdditionalSaveData(ValueOutput output) {
+    public void addAdditionalSaveData(CompoundTag output) {
         super.addAdditionalSaveData(output);
         output.putString("job", this.getJob().id());
         output.putString("look", this.getLook().id());
-        output.storeNullable("owner", UUIDUtil.CODEC, this.ownerId);
-        output.store("shared_with", UUIDUtil.CODEC.listOf(), List.copyOf(this.sharedWith));
+        store(output, "owner", UUIDUtil.CODEC, this.ownerId);
+        store(output, "shared_with", UUIDUtil.CODEC.listOf(), List.copyOf(this.sharedWith));
         output.putString("order", this.order.id());
-        output.storeNullable("follow", UUIDUtil.CODEC, this.followId);
-        output.storeNullable("stay_pos", BlockPos.CODEC, this.stayPos);
-        output.storeNullable("farm_area", BoundingBox.CODEC, this.farmArea);
+        store(output, "follow", UUIDUtil.CODEC, this.followId);
+        store(output, "stay_pos", BlockPos.CODEC, this.stayPos);
+        store(output, "farm_area", BoundingBox.CODEC, this.farmArea);
         output.putBoolean("tills_land", this.tillsLand);
-        output.store("planned_water", BlockPos.CODEC.listOf(), List.copyOf(this.plannedWater));
-        output.storeNullable("storage_pos", BlockPos.CODEC, this.storagePos);
-        output.storeNullable("bed_pos", BlockPos.CODEC, this.bedPos);
+        store(output, "planned_water", BlockPos.CODEC.listOf(), List.copyOf(this.plannedWater));
+        store(output, "storage_pos", BlockPos.CODEC, this.storagePos);
+        store(output, "bed_pos", BlockPos.CODEC, this.bedPos);
         output.putInt("rank", this.rank);
         output.putLong("harvest_day", this.harvestDay);
         output.putInt("harvested_today", this.harvestedToday);
         output.putBoolean("done_for_today", this.doneForToday);
-        output.store("collected", COLLECTED_CODEC, this.collected);
-        output.store("defeated", COLLECTED_CODEC, this.defeated);
-        output.storeNullable("guard_post", BlockPos.CODEC, this.guardPost);
+        store(output, "collected", COLLECTED_CODEC, this.collected);
+        store(output, "defeated", COLLECTED_CODEC, this.defeated);
+        store(output, "guard_post", BlockPos.CODEC, this.guardPost);
         output.putString("field", this.field.id());
         output.putBoolean("crops_gone", this.cropsGone);
         output.putLong("employed_ticks", this.employedTicks);
-        this.writeInventoryToTag(output);
+        this.writeInventoryToTag(output, this.registryAccess());
     }
 
     @Override
-    protected void readAdditionalSaveData(ValueInput input) {
+    public void readAdditionalSaveData(CompoundTag input) {
         super.readAdditionalSaveData(input);
-        this.setJob(WorkerJob.byId(input.getStringOr("job", WorkerJob.NONE.id())));
-        this.setLook(input.getString("look").map(WorkerLook::byId).orElseGet(() -> WorkerLook.forOldWorker(this.getUUID())));
-        this.ownerId = input.read("owner", UUIDUtil.CODEC).orElse(null);
+        this.setJob(WorkerJob.byId(getString(input, "job", WorkerJob.NONE.id())));
+        this.setLook(Optional.of(input.getString("look")).filter(look -> !look.isEmpty()).map(WorkerLook::byId).orElseGet(() -> WorkerLook.forOldWorker(this.getUUID())));
+        this.ownerId = read(input, "owner", UUIDUtil.CODEC).orElse(null);
         this.sharedWith.clear();
-        this.sharedWith.addAll(input.read("shared_with", UUIDUtil.CODEC.listOf()).orElse(List.of()));
-        this.order = Order.byId(input.getStringOr("order", Order.WORK.id()));
-        this.followId = input.read("follow", UUIDUtil.CODEC).orElse(null);
-        this.stayPos = input.read("stay_pos", BlockPos.CODEC).orElse(null);
-        this.farmArea = input.read("farm_area", BoundingBox.CODEC).orElse(null);
-        this.tillsLand = input.getBooleanOr("tills_land", false);
+        this.sharedWith.addAll(read(input, "shared_with", UUIDUtil.CODEC.listOf()).orElse(List.of()));
+        this.order = Order.byId(getString(input, "order", Order.WORK.id()));
+        this.followId = read(input, "follow", UUIDUtil.CODEC).orElse(null);
+        this.stayPos = read(input, "stay_pos", BlockPos.CODEC).orElse(null);
+        this.farmArea = read(input, "farm_area", BoundingBox.CODEC).orElse(null);
+        this.tillsLand = getBoolean(input, "tills_land", false);
         this.plannedWater.clear();
-        this.plannedWater.addAll(input.read("planned_water", BlockPos.CODEC.listOf()).orElse(List.of()));
-        this.storagePos = input.read("storage_pos", BlockPos.CODEC).orElse(null);
-        this.bedPos = input.read("bed_pos", BlockPos.CODEC).orElse(null);
-        this.rank = Math.clamp(input.getIntOr("rank", 1), 1, MAX_RANK);
-        this.harvestDay = input.getLongOr("harvest_day", Long.MIN_VALUE);
-        this.harvestedToday = input.getIntOr("harvested_today", 0);
-        this.doneForToday = input.getBooleanOr("done_for_today", false);
+        this.plannedWater.addAll(read(input, "planned_water", BlockPos.CODEC.listOf()).orElse(List.of()));
+        this.storagePos = read(input, "storage_pos", BlockPos.CODEC).orElse(null);
+        this.bedPos = read(input, "bed_pos", BlockPos.CODEC).orElse(null);
+        this.rank = Math.clamp(getInt(input, "rank", 1), 1, MAX_RANK);
+        this.harvestDay = getLong(input, "harvest_day", Long.MIN_VALUE);
+        this.harvestedToday = getInt(input, "harvested_today", 0);
+        this.doneForToday = getBoolean(input, "done_for_today", false);
         this.collected.clear();
-        this.collected.putAll(input.read("collected", COLLECTED_CODEC).orElse(Map.of()));
+        this.collected.putAll(read(input, "collected", COLLECTED_CODEC).orElse(Map.of()));
         this.defeated.clear();
-        this.defeated.putAll(input.read("defeated", COLLECTED_CODEC).orElse(Map.of()));
-        this.guardPost = input.read("guard_post", BlockPos.CODEC).orElse(null);
-        this.field = Field.byId(input.getStringOr("field", Field.FARMING.id()));
-        this.cropsGone = input.getBooleanOr("crops_gone", false);
-        this.employedTicks = input.getLongOr("employed_ticks", 0L);
-        this.readInventoryFromTag(input);
+        this.defeated.putAll(read(input, "defeated", COLLECTED_CODEC).orElse(Map.of()));
+        this.guardPost = read(input, "guard_post", BlockPos.CODEC).orElse(null);
+        this.field = Field.byId(getString(input, "field", Field.FARMING.id()));
+        this.cropsGone = getBoolean(input, "crops_gone", false);
+        this.employedTicks = getLong(input, "employed_ticks", 0L);
+        this.readInventoryFromTag(input, this.registryAccess());
         this.applyRankStats();
         this.updateHomeArea();
+    }
+
+    // Saving with codecs into the entity's tag (and reading back, with a default when the key isn't there).
+    private static <T> void store(CompoundTag tag, String key, Codec<T> codec, @Nullable T value) {
+        if (value != null) {
+            codec.encodeStart(NbtOps.INSTANCE, value).result().ifPresent(encoded -> tag.put(key, encoded));
+        }
+    }
+
+    private static <T> Optional<T> read(CompoundTag tag, String key, Codec<T> codec) {
+        Tag value = tag.get(key);
+        return value == null ? Optional.empty() : codec.parse(NbtOps.INSTANCE, value).result();
+    }
+
+    private static String getString(CompoundTag tag, String key, String fallback) {
+        return tag.contains(key, Tag.TAG_STRING) ? tag.getString(key) : fallback;
+    }
+
+    private static int getInt(CompoundTag tag, String key, int fallback) {
+        return tag.contains(key, Tag.TAG_ANY_NUMERIC) ? tag.getInt(key) : fallback;
+    }
+
+    private static long getLong(CompoundTag tag, String key, long fallback) {
+        return tag.contains(key, Tag.TAG_ANY_NUMERIC) ? tag.getLong(key) : fallback;
+    }
+
+    private static boolean getBoolean(CompoundTag tag, String key, boolean fallback) {
+        return tag.contains(key, Tag.TAG_ANY_NUMERIC) ? tag.getBoolean(key) : fallback;
     }
 
     @Override

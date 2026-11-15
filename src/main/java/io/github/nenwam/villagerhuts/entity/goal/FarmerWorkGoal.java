@@ -382,7 +382,7 @@ public class FarmerWorkGoal extends Goal implements DescribesActivity {
         Item replant = null;
 
         if (state.getBlock() instanceof CropBlock crop && crop.isMaxAge(state)) {
-            replant = state.getCloneItemStack(level, pos, false).getItem(); // e.g. wheat -> wheat seeds
+            replant = state.getBlock().getCloneItemStack(level, pos, state).getItem(); // e.g. wheat -> wheat seeds
             List<ItemStack> drops = Block.getDrops(state, level, pos, null, this.worker, this.worker.getMainHandItem());
             if (!this.worker.takeHarvest(drops.stream().mapToInt(ItemStack::getCount).sum())) {
                 return false; // worn out: done for today
@@ -411,7 +411,7 @@ public class FarmerWorkGoal extends Goal implements DescribesActivity {
         this.clearPlant(level, pos);
         level.setBlockAndUpdate(ground, Blocks.FARMLAND.defaultBlockState());
         level.gameEvent(GameEvent.BLOCK_CHANGE, ground, GameEvent.Context.of(this.worker, Blocks.FARMLAND.defaultBlockState()));
-        level.playSound(null, ground, SoundEvents.HOE_TILL.value(), SoundSource.BLOCKS, 1.0F, 1.0F);
+        level.playSound(null, ground, SoundEvents.HOE_TILL, SoundSource.BLOCKS, 1.0F, 1.0F);
         return true;
     }
 

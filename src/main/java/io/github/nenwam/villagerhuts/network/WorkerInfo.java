@@ -6,6 +6,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
+import io.netty.buffer.ByteBuf;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.UUIDUtil;
 import net.minecraft.core.registries.Registries;
@@ -14,7 +15,7 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.ComponentSerialization;
 import net.minecraft.network.codec.ByteBufCodecs;
 import net.minecraft.network.codec.StreamCodec;
-import net.minecraft.resources.Identifier;
+import net.minecraft.resources.ResourceLocation;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.Level;
@@ -46,9 +47,9 @@ import net.minecraft.world.level.levelgen.structure.BoundingBox;
  */
 public record WorkerInfo(UUID id, int number, Optional<String> customName, String job, String order, Component status, boolean loaded,
                          long employedTicks, ResourceKey<Level> dimension, Optional<BoundingBox> farm, Optional<BlockPos> storage,
-                         Optional<BlockPos> bed, Map<Identifier, Integer> collected, int carried, PlayerRef owner, boolean yours,
+                         Optional<BlockPos> bed, Map<ResourceLocation, Integer> collected, int carried, PlayerRef owner, boolean yours,
                          List<PlayerRef> shared, int rank, int harvestedToday, int dailyLimit, ItemStack tool, int health,
-                         int maxHealth, int ammo, Map<Identifier, Integer> defeated, String field) {
+                         int maxHealth, int ammo, Map<ResourceLocation, Integer> defeated, String field) {
 
     /** A player, by id and name (the name as the server last knew it). */
     public record PlayerRef(UUID id, String name) {
@@ -58,12 +59,12 @@ public record WorkerInfo(UUID id, int number, Optional<String> customName, Strin
                 PlayerRef::new);
     }
 
-    private static final StreamCodec<RegistryFriendlyByteBuf, Optional<String>> NAME = ByteBufCodecs.optional(ByteBufCodecs.STRING_UTF8);
+    private static final StreamCodec<ByteBuf, Optional<String>> NAME = ByteBufCodecs.optional(ByteBufCodecs.STRING_UTF8);
     private static final StreamCodec<? super RegistryFriendlyByteBuf, ResourceKey<Level>> DIMENSION = ResourceKey.streamCodec(Registries.DIMENSION);
-    private static final StreamCodec<RegistryFriendlyByteBuf, Optional<BoundingBox>> AREA = ByteBufCodecs.optional(ByteBufCodecs.fromCodec(BoundingBox.CODEC));
-    private static final StreamCodec<RegistryFriendlyByteBuf, Optional<BlockPos>> POS = ByteBufCodecs.optional(BlockPos.STREAM_CODEC);
-    private static final StreamCodec<RegistryFriendlyByteBuf, Map<Identifier, Integer>> COLLECTED =
-            ByteBufCodecs.map(HashMap::new, Identifier.STREAM_CODEC, ByteBufCodecs.VAR_INT);
+    private static final StreamCodec<ByteBuf, Optional<BoundingBox>> AREA = ByteBufCodecs.optional(ByteBufCodecs.fromCodec(BoundingBox.CODEC));
+    private static final StreamCodec<ByteBuf, Optional<BlockPos>> POS = ByteBufCodecs.optional(BlockPos.STREAM_CODEC);
+    private static final StreamCodec<RegistryFriendlyByteBuf, Map<ResourceLocation, Integer>> COLLECTED =
+            ByteBufCodecs.map(HashMap::new, ResourceLocation.STREAM_CODEC, ByteBufCodecs.VAR_INT);
     private static final StreamCodec<RegistryFriendlyByteBuf, List<PlayerRef>> PLAYERS = PlayerRef.STREAM_CODEC.apply(ByteBufCodecs.list());
 
     public static final StreamCodec<RegistryFriendlyByteBuf, WorkerInfo> STREAM_CODEC = StreamCodec.of(WorkerInfo::write, WorkerInfo::read);

@@ -1,6 +1,7 @@
 package io.github.nenwam.villagerhuts.gametest;
 
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -10,22 +11,12 @@ import java.util.function.Consumer;
 import io.github.nenwam.villagerhuts.VillagerHuts;
 import io.github.nenwam.villagerhuts.entity.WorkerAssigning;
 import io.github.nenwam.villagerhuts.entity.WorkerEntity;
-import io.github.nenwam.villagerhuts.entity.WorkerNames;
 import io.github.nenwam.villagerhuts.entity.WorkerLook;
-import io.github.nenwam.villagerhuts.item.FighterItem;
-import io.github.nenwam.villagerhuts.job.Weapons;
-import net.minecraft.core.registries.BuiltInRegistries;
-import net.minecraft.tags.ItemTags;
-import net.minecraft.world.entity.LivingEntity;
-import net.minecraft.world.entity.ai.attributes.Attributes;
-import net.minecraft.world.entity.animal.cow.Cow;
-import net.minecraft.world.entity.animal.wolf.Wolf;
-import net.minecraft.world.entity.monster.Creeper;
-import net.minecraft.world.entity.monster.zombie.Husk;
-import net.minecraft.world.entity.npc.villager.Villager;
-import net.minecraft.world.item.ProjectileWeaponItem;
+import io.github.nenwam.villagerhuts.entity.WorkerNames;
 import io.github.nenwam.villagerhuts.farm.FarmPlan;
 import io.github.nenwam.villagerhuts.item.FarmerItem;
+import io.github.nenwam.villagerhuts.item.FighterItem;
+import io.github.nenwam.villagerhuts.job.Weapons;
 import io.github.nenwam.villagerhuts.job.WorkerJob;
 import io.github.nenwam.villagerhuts.network.ModNetwork;
 import io.github.nenwam.villagerhuts.network.ShareWorkerPayload;
@@ -33,43 +24,53 @@ import io.github.nenwam.villagerhuts.network.WorkerCommandPayload;
 import io.github.nenwam.villagerhuts.network.WorkerInfo;
 import io.github.nenwam.villagerhuts.network.WorkerListPayload;
 import io.github.nenwam.villagerhuts.registry.ModItems;
-import io.netty.buffer.Unpooled;
 import io.github.nenwam.villagerhuts.roster.WorkerRoster;
+import io.netty.buffer.Unpooled;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
-import net.minecraft.core.Holder;
 import net.minecraft.core.component.DataComponents;
-import net.minecraft.core.registries.Registries;
-import net.minecraft.gametest.framework.FunctionGameTestInstance;
+import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.gametest.framework.AfterBatch;
+import net.minecraft.gametest.framework.BeforeBatch;
+import net.minecraft.gametest.framework.GameTestAssertException;
+import net.minecraft.gametest.framework.GameTestGenerator;
 import net.minecraft.gametest.framework.GameTestHelper;
-import net.minecraft.gametest.framework.TestData;
-import net.minecraft.gametest.framework.TestEnvironmentDefinition;
+import net.minecraft.gametest.framework.TestFunction;
 import net.minecraft.network.RegistryFriendlyByteBuf;
 import net.minecraft.network.chat.Component;
-import net.minecraft.network.codec.StreamCodec;
 import net.minecraft.network.chat.contents.TranslatableContents;
-import net.minecraft.resources.Identifier;
-import net.minecraft.resources.ResourceKey;
+import net.minecraft.network.codec.StreamCodec;
+import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.MinecraftServer;
+import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.tags.ItemTags;
 import net.minecraft.world.Container;
 import net.minecraft.world.InteractionHand;
-import net.minecraft.world.entity.EntityTypes;
+import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.EquipmentSlot;
-import net.minecraft.world.entity.monster.zombie.Zombie;
+import net.minecraft.world.entity.LivingEntity;
+import net.minecraft.world.entity.ai.attributes.Attributes;
+import net.minecraft.world.entity.animal.Cow;
+import net.minecraft.world.entity.animal.Wolf;
+import net.minecraft.world.entity.monster.Creeper;
+import net.minecraft.world.entity.monster.Husk;
+import net.minecraft.world.entity.monster.Zombie;
+import net.minecraft.world.entity.npc.Villager;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
+import net.minecraft.world.item.ProjectileWeaponItem;
 import net.minecraft.world.item.crafting.CraftingInput;
 import net.minecraft.world.item.crafting.RecipeType;
 import net.minecraft.world.level.GameType;
+import net.minecraft.world.level.block.BedBlock;
 import net.minecraft.world.level.block.Block;
-import net.minecraft.world.level.block.AbstractBedBlock;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.ChestBlock;
 import net.minecraft.world.level.block.CropBlock;
-import net.minecraft.world.level.block.FarmlandBlock;
+import net.minecraft.world.level.block.FarmBlock;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.properties.BedPart;
 import net.minecraft.world.level.levelgen.structure.BoundingBox;
@@ -77,7 +78,6 @@ import net.minecraft.world.phys.Vec3;
 import net.neoforged.bus.api.IEventBus;
 import net.neoforged.neoforge.event.RegisterGameTestsEvent;
 import net.neoforged.neoforge.gametest.GameTestHooks;
-import net.neoforged.neoforge.registries.DeferredRegister;
 import org.jspecify.annotations.Nullable;
 
 /**
@@ -88,27 +88,30 @@ import org.jspecify.annotations.Nullable;
  * Only registered in development and test runs, never in a normal game.
  */
 public final class VillagerHutsTests {
-    private static final DeferredRegister<Consumer<GameTestHelper>> FUNCTIONS =
-            DeferredRegister.create(Registries.TEST_FUNCTION, VillagerHuts.MODID);
-    private static final Identifier PLATFORM = id("test/platform");
+    private static final ResourceLocation PLATFORM = id("test/platform");
+    private static final String MODID_PREFIX = VillagerHuts.MODID + ".";
+    private static final String BATCH = "villagerhuts";
+    private static final String NIGHT = "villagerhuts_night";
+    private static final String MORNING = "villagerhuts_morning";
 
-    // Positions on the test platform (relative). buildFarm makes a 7x7 farm (48 farmland around a water
+    // Positions on the test platform, relative to the test. (In 1.21.1 a test's structure is placed one block above
+    // the test's own position, so the platform's grass floor is at y = 1.) buildFarm makes a 7x7 farm (48 farmland around a water
     // block) with a fence around it, a gap in the fence on the south side, and a chest south of the gap.
     private static final int FARM_MIN_X = 4, FARM_MAX_X = 10, FARM_MIN_Z = 3, FARM_MAX_Z = 9;
-    private static final BlockPos FARM_WATER = new BlockPos(7, 0, 6);
-    private static final BlockPos FENCE_GAP = new BlockPos(7, 1, 10);
-    private static final BlockPos FARM_CORNER = new BlockPos(4, 1, 3);       // crop level, inside the fence
-    private static final BlockPos CHEST = new BlockPos(7, 1, 13);
-    private static final BlockPos SPARE_CHEST_SPOT = new BlockPos(12, 1, 17);
-    private static final BlockPos WORKER_SPOT = new BlockPos(9, 1, 12);       // where the farmer is hired
-    private static final BlockPos FAR_AWAY = new BlockPos(60, 0, 0);          // past the 32-block limit
-    private static final BlockPos NEW_FARM_CENTER = new BlockPos(8, 0, 16);   // bare grass: a 9x9 new farm fits around it
-    private static final BlockPos BED_FOOT = new BlockPos(11, 1, 14);           // a bed near the chest, head to the south
-    private static final BlockPos BED_HEAD = new BlockPos(11, 1, 15);
+    private static final BlockPos FARM_WATER = new BlockPos(7, 1, 6);
+    private static final BlockPos FENCE_GAP = new BlockPos(7, 2, 10);
+    private static final BlockPos FARM_CORNER = new BlockPos(4, 2, 3);       // crop level, inside the fence
+    private static final BlockPos CHEST = new BlockPos(7, 2, 13);
+    private static final BlockPos SPARE_CHEST_SPOT = new BlockPos(12, 2, 17);
+    private static final BlockPos WORKER_SPOT = new BlockPos(9, 2, 12);       // where the farmer is hired
+    private static final BlockPos FAR_AWAY = new BlockPos(60, 1, 0);          // past the 32-block limit
+    private static final BlockPos NEW_FARM_CENTER = new BlockPos(8, 1, 16);   // bare grass: a 9x9 new farm fits around it
+    private static final BlockPos BED_FOOT = new BlockPos(11, 2, 14);           // a bed near the chest, head to the south
+    private static final BlockPos BED_HEAD = new BlockPos(11, 2, 15);
 
-    private static final BlockPos POST_GROUND = new BlockPos(8, 0, 12);       // a fighter's post: it stands on this
-    private static final BlockPos FIGHTER_SPOT = new BlockPos(8, 1, 10);      // where fighters are hired
-    private static final BlockPos FOE_SPOT = new BlockPos(8, 1, 20);          // inside the post's guard zone
+    private static final BlockPos POST_GROUND = new BlockPos(8, 1, 12);       // a fighter's post: it stands on this
+    private static final BlockPos FIGHTER_SPOT = new BlockPos(8, 2, 10);      // where fighters are hired
+    private static final BlockPos FOE_SPOT = new BlockPos(8, 2, 20);          // inside the post's guard zone
 
     /** When a test runs: in the normal batch, or in a batch of its own at night or in the morning (see registerTests). */
     private enum When { ANY, NIGHT, MORNING }
@@ -166,36 +169,36 @@ public final class VillagerHutsTests {
             new Test("fighters_sleep_in_the_morning", 800, VillagerHutsTests::fightersSleepInTheMorning, When.MORNING));
 
     public static void register(IEventBus modBus) {
-        if (!GameTestHooks.isGametestEnabled()) {
-            return;
+        if (GameTestHooks.isGametestEnabled()) {
+            modBus.addListener(RegisterGameTestsEvent.class, event -> event.register(VillagerHutsTests.class));
         }
-        for (Test test : TESTS) {
-            FUNCTIONS.register(test.name(), () -> test.body());
-        }
-        FUNCTIONS.register(modBus);
-        modBus.addListener(VillagerHutsTests::registerTests);
     }
 
-    private static void registerTests(RegisterGameTestsEvent event) {
-        Holder<TestEnvironmentDefinition<?>> day =
-                event.registerEnvironment(id("default"), new TestEnvironmentDefinition.AllOf(List.of()));
-        // Tests run in batches by environment, so the night-time tests run on their own: the clock is set to midnight
-        // for them (data/villagerhuts/function/test/night), then back to morning (test/day). The morning tests too.
-        // (Each of these tests sets the time again when it starts: it can start a while after its batch does.)
-        Holder<TestEnvironmentDefinition<?>> night = event.registerEnvironment(id("night"),
-                new TestEnvironmentDefinition.Functions(Optional.of(id("test/night")), Optional.of(id("test/day"))));
-        Holder<TestEnvironmentDefinition<?>> morning = event.registerEnvironment(id("morning"),
-                new TestEnvironmentDefinition.Functions(Optional.of(id("test/day")), Optional.empty()));
-        for (Test test : TESTS) {
-            ResourceKey<Consumer<GameTestHelper>> function = ResourceKey.create(Registries.TEST_FUNCTION, id(test.name()));
-            Holder<TestEnvironmentDefinition<?>> environment = switch (test.when()) {
-                case ANY -> day;
-                case NIGHT -> night;
-                case MORNING -> morning;
-            };
-            event.registerTest(id(test.name()), data -> new FunctionGameTestInstance(function, data),
-                    new TestData<>(environment, PLATFORM, test.maxTicks(), 0, true));
-        }
+    /** Every test above, on the platform. Tests run in batches by name, so the night and morning ones run on their own. */
+    @GameTestGenerator
+    public static Collection<TestFunction> tests() {
+        return TESTS.stream().map(test -> new TestFunction(switch (test.when()) {
+                    case ANY -> BATCH;
+                    case NIGHT -> NIGHT;
+                    case MORNING -> MORNING;
+                }, MODID_PREFIX + test.name(), PLATFORM.toString(), test.maxTicks(), 0, true, test.body())).toList();
+    }
+
+    // The clock for the night and morning batches (each of those tests sets it again when it starts: it can start a
+    // while after its batch does).
+    @BeforeBatch(batch = NIGHT)
+    public static void beforeNight(ServerLevel level) {
+        level.setDayTime(18000);
+    }
+
+    @AfterBatch(batch = NIGHT)
+    public static void afterNight(ServerLevel level) {
+        level.setDayTime(1000);
+    }
+
+    @BeforeBatch(batch = MORNING)
+    public static void beforeMorning(ServerLevel level) {
+        level.setDayTime(1000);
     }
 
     // ================================================================ tests
@@ -225,16 +228,16 @@ public final class VillagerHutsTests {
 
         BlockPos home = worker.blockPosition();
         BlockPos far = helper.absolutePos(FAR_AWAY);
-        worker.snapTo(far.getX() + 0.5, far.getY() + 1, far.getZ() + 0.5, 0, 0); // walked off: everything is too far
+        worker.moveTo(far.getX() + 0.5, far.getY() + 1, far.getZ() + 0.5, 0, 0); // walked off: everything is too far
         assertOutcome(helper, assign(helper, worker, CHEST), false, "message.villagerhuts.chest_too_far");
         assertOutcome(helper, assign(helper, worker, FARM_WATER), false, "message.villagerhuts.farm_too_far");
-        worker.snapTo(home.getX() + 0.5, home.getY(), home.getZ() + 0.5, 0, 0);
-        assertOutcome(helper, assign(helper, worker, new BlockPos(14, 0, 21)), false, "message.villagerhuts.no_farmland");
+        worker.moveTo(home.getX() + 0.5, home.getY(), home.getZ() + 0.5, 0, 0);
+        assertOutcome(helper, assign(helper, worker, new BlockPos(14, 1, 21)), false, "message.villagerhuts.no_farmland");
         helper.assertTrue(worker.getFarmArea() == null && worker.getStoragePos() == null, "a refused click still assigned something");
 
         assertOutcome(helper, assign(helper, worker, FARM_WATER), true, "message.villagerhuts.farm_assigned");
-        BoundingBox expected = BoundingBox.fromCorners(helper.absolutePos(new BlockPos(FARM_MIN_X, 0, FARM_MIN_Z)),
-                helper.absolutePos(new BlockPos(FARM_MAX_X, 1, FARM_MAX_Z)));
+        BoundingBox expected = BoundingBox.fromCorners(helper.absolutePos(new BlockPos(FARM_MIN_X, 1, FARM_MIN_Z)),
+                helper.absolutePos(new BlockPos(FARM_MAX_X, 2, FARM_MAX_Z)));
         helper.assertTrue(expected.equals(worker.getFarmArea()), "farm is " + worker.getFarmArea() + ", expected " + expected);
         assertOutcome(helper, assign(helper, worker, CHEST), true, "message.villagerhuts.chest_assigned");
         helper.assertTrue(helper.absolutePos(CHEST).equals(worker.getStoragePos()), "chest is " + worker.getStoragePos());
@@ -257,7 +260,7 @@ public final class VillagerHutsTests {
     /** Ripe crops get harvested, replanted from their own seeds, and the harvest ends up in the chest. */
     private static void farmerHarvestsReplantsAndStores(GameTestHelper helper) {
         WorkerEntity worker = hireFarmer(helper, null);
-        BlockPos[] ripe = {new BlockPos(4, 1, 3), new BlockPos(5, 1, 3), new BlockPos(6, 1, 3), new BlockPos(4, 1, 4), new BlockPos(5, 1, 4)};
+        BlockPos[] ripe = {new BlockPos(4, 2, 3), new BlockPos(5, 2, 3), new BlockPos(6, 2, 3), new BlockPos(4, 2, 4), new BlockPos(5, 2, 4)};
         for (BlockPos pos : ripe) {
             helper.setBlock(pos, Blocks.WHEAT.defaultBlockState().setValue(CropBlock.AGE, 7));
         }
@@ -311,7 +314,7 @@ public final class VillagerHutsTests {
     private static void chestBrokenMidTrip(GameTestHelper helper) {
         WorkerEntity worker = hireFarmer(helper, null);
         BlockPos start = helper.absolutePos(FARM_CORNER); // far from the chest, so the trip takes a while
-        worker.snapTo(start.getX() + 0.5, start.getY(), start.getZ() + 0.5, 0, 0);
+        worker.moveTo(start.getX() + 0.5, start.getY(), start.getZ() + 0.5, 0, 0);
         container(helper, CHEST).setItem(0, new ItemStack(Items.WHEAT_SEEDS, 20));
         helper.startSequence()
                 .thenIdle(40)
@@ -366,7 +369,7 @@ public final class VillagerHutsTests {
         helper.startSequence()
                 .thenIdle(25) // the roster refreshes every 20 ticks
                 .thenExecute(() -> helper.assertTrue(roster.entry(worker.getUUID()).isPresent(), "worker not added to the roster"))
-                .thenExecute(() -> worker.kill(helper.getLevel()))
+                .thenExecute(() -> worker.kill())
                 .thenIdle(2)
                 .thenExecute(() -> helper.assertTrue(roster.entry(worker.getUUID()).isEmpty(), "dead worker still on the roster"))
                 .thenSucceed();
@@ -407,7 +410,7 @@ public final class VillagerHutsTests {
      */
     private static void zombiesHuntWorkers(GameTestHelper helper) {
         WorkerEntity worker = hireFarmer(helper, null);
-        Zombie zombie = helper.spawn(EntityTypes.ZOMBIE, new BlockPos(14, 1, 14)); // open grass, in plain view
+        Zombie zombie = helper.spawn(EntityType.ZOMBIE, new BlockPos(14, 2, 14)); // open grass, in plain view
         zombie.setItemSlot(EquipmentSlot.HEAD, new ItemStack(Items.LEATHER_HELMET));
         helper.succeedWhen(() -> helper.assertTrue(zombie.getTarget() == worker, "zombie's target is " + zombie.getTarget()));
     }
@@ -417,24 +420,25 @@ public final class VillagerHutsTests {
      * tilled (a flower spot isn't, short grass is), and water goes in so all of it stays wet. Air: nothing to farm.
      */
     private static void newFarmPlan(GameTestHelper helper) {
-        helper.setBlock(new BlockPos(6, 1, 18), Blocks.SHORT_GRASS);
-        helper.setBlock(new BlockPos(10, 1, 18), Blocks.POPPY);
-        FarmPlan plan = FarmPlan.find(helper.getLevel(), helper.absolutePos(new BlockPos(8, 0, 15)), 16);
+        groundUnderPlatform(helper); // water needs solid ground under it
+        helper.setBlock(new BlockPos(6, 2, 18), Blocks.SHORT_GRASS);
+        helper.setBlock(new BlockPos(10, 2, 18), Blocks.POPPY);
+        FarmPlan plan = FarmPlan.find(helper.getLevel(), helper.absolutePos(new BlockPos(8, 1, 15)), 16);
         helper.assertTrue(plan.box() != null, "no farm planned on grass");
-        helper.assertTrue(plan.till().contains(helper.absolutePos(new BlockPos(6, 0, 18))), "grass under short grass not tilled");
-        helper.assertTrue(!plan.till().contains(helper.absolutePos(new BlockPos(10, 0, 18))), "grass under a flower tilled");
+        helper.assertTrue(plan.till().contains(helper.absolutePos(new BlockPos(6, 1, 18))), "grass under short grass not tilled");
+        helper.assertTrue(!plan.till().contains(helper.absolutePos(new BlockPos(10, 1, 18))), "grass under a flower tilled");
         helper.assertTrue(!plan.water().isEmpty() && plan.till().size() + plan.water().size() == 255,
                 plan.till().size() + " to till and " + plan.water().size() + " water, expected 255 in all (256 minus the flower)");
         for (BlockPos spot : plan.till()) {
             helper.assertTrue(plan.water().stream().anyMatch(water -> FarmPlan.wets(water, spot)), "nothing keeps " + spot + " wet");
         }
-        BlockPos sky = helper.absolutePos(new BlockPos(8, 8, 15));
+        BlockPos sky = helper.absolutePos(new BlockPos(8, 9, 15));
         helper.assertTrue(FarmPlan.find(helper.getLevel(), sky, 9).box() == null, "a farm planned in the air");
 
         WorkerEntity worker = FarmerItem.spawnFarmer(helper.getLevel(), helper.absolutePos(WORKER_SPOT), null);
         assertOutcome(helper, WorkerAssigning.createFarm(helper.getLevel(), worker, sky), false, "message.villagerhuts.nothing_to_farm");
         BlockPos far = helper.absolutePos(FAR_AWAY);
-        worker.snapTo(far.getX() + 0.5, far.getY() + 1, far.getZ() + 0.5, 0, 0);
+        worker.moveTo(far.getX() + 0.5, far.getY() + 1, far.getZ() + 0.5, 0, 0);
         assertOutcome(helper, WorkerAssigning.createFarm(helper.getLevel(), worker, helper.absolutePos(NEW_FARM_CENTER)), false,
                 "message.villagerhuts.farm_too_far");
         helper.succeed();
@@ -442,6 +446,7 @@ public final class VillagerHutsTests {
 
     /** A new 9x9 farm on bare grass: the farmer puts water in the middle and tills the other 80 blocks, with no seeds needed. */
     private static void newFarmIsTilledAndWatered(GameTestHelper helper) {
+        groundUnderPlatform(helper); // water needs solid ground under it
         WorkerEntity worker = FarmerItem.spawnFarmer(helper.getLevel(), helper.absolutePos(WORKER_SPOT), null);
         assertOutcome(helper, WorkerAssigning.createFarm(helper.getLevel(), worker, helper.absolutePos(NEW_FARM_CENTER)), true,
                 "message.villagerhuts.farm_created");
@@ -452,7 +457,7 @@ public final class VillagerHutsTests {
             int farmland = 0;
             for (int x = -4; x <= 4; x++) {
                 for (int z = -4; z <= 4; z++) {
-                    if (helper.getBlockState(NEW_FARM_CENTER.offset(x, 0, z)).getBlock() instanceof FarmlandBlock) {
+                    if (helper.getBlockState(NEW_FARM_CENTER.offset(x, 0, z)).getBlock() instanceof FarmBlock) {
                         farmland++;
                     }
                 }
@@ -464,7 +469,7 @@ public final class VillagerHutsTests {
     /** Bone meal put in the chest gets fetched and used: young crops grow up fast and get harvested. */
     private static void boneMealFromTheChestIsUsed(GameTestHelper helper) {
         WorkerEntity worker = hireFarmer(helper, null);
-        BlockPos[] young = {new BlockPos(4, 1, 3), new BlockPos(5, 1, 3), new BlockPos(6, 1, 3)};
+        BlockPos[] young = {new BlockPos(4, 2, 3), new BlockPos(5, 2, 3), new BlockPos(6, 2, 3)};
         for (BlockPos pos : young) {
             helper.setBlock(pos, Blocks.WHEAT.defaultBlockState());
         }
@@ -472,7 +477,7 @@ public final class VillagerHutsTests {
         chest.setItem(0, new ItemStack(Items.BONE_MEAL, 32));
         helper.succeedWhen(() -> {
             helper.assertTrue(count(chest, Items.BONE_MEAL) + count(worker.getInventory(), Items.BONE_MEAL) < 32, "no bone meal used");
-            helper.assertTrue(worker.getCollected().getOrDefault(Identifier.withDefaultNamespace("wheat"), 0) >= young.length,
+            helper.assertTrue(worker.getCollected().getOrDefault(ResourceLocation.withDefaultNamespace("wheat"), 0) >= young.length,
                     "harvested " + worker.getCollected());
         });
     }
@@ -511,9 +516,9 @@ public final class VillagerHutsTests {
     @SuppressWarnings("removal") // the mock player that's really in the world, which following needs
     private static void newFarmerFollowsItsOwner(GameTestHelper helper) {
         ServerPlayer owner = helper.makeMockServerPlayerInLevel();
-        BlockPos stand = helper.absolutePos(new BlockPos(14, 1, 21));
-        owner.snapTo(stand.getX() + 0.5, stand.getY(), stand.getZ() + 0.5, 0, 0);
-        WorkerEntity worker = FarmerItem.spawnFarmer(helper.getLevel(), helper.absolutePos(new BlockPos(2, 1, 2)), owner);
+        BlockPos stand = helper.absolutePos(new BlockPos(14, 2, 21));
+        owner.moveTo(stand.getX() + 0.5, stand.getY(), stand.getZ() + 0.5, 0, 0);
+        WorkerEntity worker = FarmerItem.spawnFarmer(helper.getLevel(), helper.absolutePos(new BlockPos(2, 2, 2)), owner);
         helper.startSequence()
                 .thenWaitUntil(() -> helper.assertTrue(worker.distanceTo(owner) < 4,
                         "still " + String.format(java.util.Locale.ROOT, "%.1f", worker.distanceTo(owner)) + " blocks from its owner"))
@@ -618,21 +623,21 @@ public final class VillagerHutsTests {
         String name = worker.getCustomName().getString();
 
         stranger.setItemInHand(InteractionHand.MAIN_HAND, new ItemStack(Items.LEAD));
-        worker.interact(stranger, InteractionHand.MAIN_HAND, Vec3.ZERO);
+        stranger.interactOn(worker, InteractionHand.MAIN_HAND);
         helper.assertTrue(!worker.isLeashed(), "a stranger put a lead on it");
         ItemStack tag = new ItemStack(Items.NAME_TAG);
         tag.set(DataComponents.CUSTOM_NAME, Component.literal("Stolen"));
         stranger.setItemInHand(InteractionHand.MAIN_HAND, tag);
-        worker.interact(stranger, InteractionHand.MAIN_HAND, Vec3.ZERO);
+        stranger.interactOn(worker, InteractionHand.MAIN_HAND);
         helper.assertTrue(worker.getCustomName().getString().equals(name), "a stranger renamed it to " + worker.getCustomName().getString());
         stranger.setItemInHand(InteractionHand.MAIN_HAND, new ItemStack(ModItems.DIAMOND_CARROT.get(), 64));
-        worker.interact(stranger, InteractionHand.MAIN_HAND, Vec3.ZERO);
+        stranger.interactOn(worker, InteractionHand.MAIN_HAND);
         helper.assertTrue(worker.getRank() == 1 && stranger.getMainHandItem().getCount() == 64, "a stranger upgraded it");
 
         float health = worker.getHealth();
-        worker.hurtServer(helper.getLevel(), helper.getLevel().damageSources().playerAttack(stranger), 5.0F);
+        worker.hurt(helper.getLevel().damageSources().playerAttack(stranger), 5.0F);
         helper.assertTrue(worker.getHealth() == health, "a stranger hurt it");
-        worker.hurtServer(helper.getLevel(), helper.getLevel().damageSources().playerAttack(owner), 1.0F);
+        worker.hurt(helper.getLevel().damageSources().playerAttack(owner), 1.0F);
         helper.assertTrue(worker.getHealth() < health, "its owner couldn't hurt it");
         helper.succeed();
     }
@@ -666,7 +671,7 @@ public final class VillagerHutsTests {
     // The owner right-clicks the worker holding `count` of `item`: it should end up at `rank`, with `left` of them left.
     private static void offer(GameTestHelper helper, WorkerEntity worker, Player owner, Item item, int count, int rank, int left) {
         owner.setItemInHand(InteractionHand.MAIN_HAND, new ItemStack(item, count));
-        worker.interact(owner, InteractionHand.MAIN_HAND, Vec3.ZERO);
+        owner.interactOn(worker, InteractionHand.MAIN_HAND);
         ItemStack held = owner.getMainHandItem();
         helper.assertTrue(worker.getRank() == rank && (left == 0 ? held.isEmpty() : held.is(item) && held.getCount() == left),
                 "offered " + count + " " + item + ": rank " + worker.getRank() + " (expected " + rank + "), holding " + held);
@@ -711,8 +716,8 @@ public final class VillagerHutsTests {
 
     private static void assertCrafts(GameTestHelper helper, List<ItemStack> items, @Nullable Item expected) {
         CraftingInput input = CraftingInput.of(3, 3, items);
-        ItemStack result = helper.getLevel().recipeAccess().getRecipeFor(RecipeType.CRAFTING, input, helper.getLevel())
-                .map(recipe -> recipe.value().assemble(input))
+        ItemStack result = helper.getLevel().getRecipeManager().getRecipeFor(RecipeType.CRAFTING, input, helper.getLevel())
+                .map(recipe -> recipe.value().assemble(input, helper.getLevel().registryAccess()))
                 .orElse(ItemStack.EMPTY);
         helper.assertTrue(expected == null ? result.isEmpty() : result.is(expected),
                 items.stream().map(stack -> stack.getItem().toString()).toList() + " made " + result + ", expected " + expected);
@@ -727,7 +732,7 @@ public final class VillagerHutsTests {
         for (int x = FARM_MIN_X; x <= FARM_MAX_X; x++) {
             for (int z = FARM_MIN_Z; z <= FARM_MAX_Z; z++) {
                 if (x != FARM_WATER.getX() || z != FARM_WATER.getZ()) {
-                    helper.setBlock(new BlockPos(x, 1, z), Blocks.WHEAT.defaultBlockState().setValue(CropBlock.AGE, 7));
+                    helper.setBlock(new BlockPos(x, 2, z), Blocks.WHEAT.defaultBlockState().setValue(CropBlock.AGE, 7));
                 }
             }
         }
@@ -772,7 +777,7 @@ public final class VillagerHutsTests {
 
         helper.assertTrue(worker.takeHarvest(worker.getDailyLimit()) && worker.isDoneForToday(), "a full day's harvest didn't finish its day");
         BlockPos start = helper.absolutePos(FARM_CORNER);
-        worker.snapTo(start.getX() + 0.5, start.getY(), start.getZ() + 0.5, 0, 0);
+        worker.moveTo(start.getX() + 0.5, start.getY(), start.getZ() + 0.5, 0, 0);
         helper.succeedWhen(() -> {
             helper.assertTrue(worker.position().distanceTo(Vec3.atBottomCenterOf(head)) < 4.5, "not by its bed");
             assertStatus(helper, worker, "activity.villagerhuts.resting");
@@ -788,9 +793,9 @@ public final class VillagerHutsTests {
         placeBed(helper);
         assertOutcome(helper, assign(helper, worker, BED_HEAD), true, "message.villagerhuts.bed_assigned");
         helper.succeedWhen(() -> {
-            helper.assertTrue(helper.getLevel().isDarkOutside(), "it isn't night");
+            helper.assertTrue(helper.getLevel().isNight(), "it isn't night");
             helper.assertTrue(worker.isSleeping(), "not asleep");
-            helper.assertTrue(helper.getBlockState(BED_HEAD).getValue(AbstractBedBlock.OCCUPIED), "bed not taken");
+            helper.assertTrue(helper.getBlockState(BED_HEAD).getValue(BedBlock.OCCUPIED), "bed not taken");
             assertStatus(helper, worker, "activity.villagerhuts.sleeping");
         });
     }
@@ -812,7 +817,7 @@ public final class VillagerHutsTests {
             WorkerRoster.get(server).update(worker);
             WorkerEntity ranger = hireFighter(helper, owner, new ItemStack(Items.CROSSBOW));
             ranger.getInventory().addItem(new ItemStack(Items.ARROW, 20));
-            ranger.recordDefeated(helper.spawn(EntityTypes.HUSK, FOE_SPOT));
+            ranger.recordDefeated(helper.spawn(EntityType.HUSK, FOE_SPOT));
             WorkerRoster.get(server).update(ranger);
             ModNetwork.shareWorker(server, owner, worker.getUUID(), friend.getUUID(), ShareWorkerPayload.Action.SHARE);
             for (UUID player : List.of(owner.getUUID(), friend.getUUID())) {
@@ -860,7 +865,7 @@ public final class VillagerHutsTests {
         int young = 0;
         for (int x = FARM_MIN_X; x <= FARM_MAX_X; x++) {
             for (int z = FARM_MIN_Z; z <= FARM_MAX_Z; z++) {
-                BlockPos pos = new BlockPos(x, 1, z);
+                BlockPos pos = new BlockPos(x, 2, z);
                 if (helper.getBlockState(pos.below()).is(Blocks.FARMLAND)) {
                     boolean ripe = (x + z) % 4 == 0;
                     helper.setBlock(pos, Blocks.WHEAT.defaultBlockState().setValue(CropBlock.AGE, ripe ? 7 : 1));
@@ -927,7 +932,7 @@ public final class VillagerHutsTests {
         for (Item item : BuiltInRegistries.ITEM) {
             ItemStack stack = new ItemStack(item);
             String name = BuiltInRegistries.ITEM.getKey(item).toString();
-            boolean melee = stack.is(ItemTags.SWORDS) || stack.is(ItemTags.AXES) || stack.is(ItemTags.SPEARS) || item == Items.MACE;
+            boolean melee = stack.is(ItemTags.SWORDS) || stack.is(ItemTags.AXES) || item == Items.MACE;
             boolean ranged = item instanceof ProjectileWeaponItem || item == Items.TRIDENT;
             boolean neither = stack.is(ItemTags.HOES) || stack.is(ItemTags.PICKAXES) || stack.is(ItemTags.SHOVELS)
                     || item == Items.SHIELD || item == Items.STICK || item == Items.SHEARS || item == Items.FISHING_ROD || item == Items.ARROW;
@@ -980,7 +985,7 @@ public final class VillagerHutsTests {
                 .thenWaitUntil(() -> helper.assertTrue(!husk.isAlive(), "the husk is still alive"))
                 .thenWaitUntil(() -> helper.assertTrue(count(warrior.getInventory(), Items.EMERALD) == 1, "its emerald isn't in the warrior's pockets"))
                 .thenExecute(() -> {
-                    helper.assertTrue(warrior.getDefeated().getOrDefault(Identifier.withDefaultNamespace("husk"), 0) == 1,
+                    helper.assertTrue(warrior.getDefeated().getOrDefault(ResourceLocation.withDefaultNamespace("husk"), 0) == 1,
                             "defeated: " + warrior.getDefeated());
                     helper.assertTrue(warrior.getMainHandItem().is(Items.IRON_SWORD) && warrior.getMainHandItem().getDamageValue() == 0,
                             "the sword wore down: " + warrior.getMainHandItem().getDamageValue());
@@ -1004,7 +1009,7 @@ public final class VillagerHutsTests {
                 .thenExecute(() -> helper.assertTrue(firstShotFrom[0] > 4, "shot from only " + firstShotFrom[0] + " blocks"))
                 .thenWaitUntil(() -> helper.assertTrue(!husk.isAlive(), "the husk is still alive"))
                 .thenExecute(() -> {
-                    helper.assertTrue(ranger.getDefeated().getOrDefault(Identifier.withDefaultNamespace("husk"), 0) == 1,
+                    helper.assertTrue(ranger.getDefeated().getOrDefault(ResourceLocation.withDefaultNamespace("husk"), 0) == 1,
                             "defeated: " + ranger.getDefeated());
                     helper.assertTrue(ranger.getMainHandItem().getDamageValue() == 0, "the bow wore down");
                 })
@@ -1093,10 +1098,10 @@ public final class VillagerHutsTests {
         assign(helper, warrior, POST_GROUND);
         WorkerEntity ranger = hireFighter(helper, owner, new ItemStack(Items.TRIDENT));
         assign(helper, ranger, POST_GROUND);
-        WorkerEntity farmer = FarmerItem.spawnFarmer(helper.getLevel(), helper.absolutePos(new BlockPos(4, 1, 16)), null);
-        Villager villager = helper.spawn(EntityTypes.VILLAGER, new BlockPos(12, 1, 16));
-        Cow cow = helper.spawn(EntityTypes.COW, new BlockPos(4, 1, 20));
-        Wolf wolf = helper.spawn(EntityTypes.WOLF, new BlockPos(12, 1, 20));
+        WorkerEntity farmer = FarmerItem.spawnFarmer(helper.getLevel(), helper.absolutePos(new BlockPos(4, 2, 16)), null);
+        Villager villager = helper.spawn(EntityType.VILLAGER, new BlockPos(12, 2, 16));
+        Cow cow = helper.spawn(EntityType.COW, new BlockPos(4, 2, 20));
+        Wolf wolf = helper.spawn(EntityType.WOLF, new BlockPos(12, 2, 20));
         helper.startSequence()
                 .thenIdle(100)
                 .thenExecute(() -> {
@@ -1120,7 +1125,7 @@ public final class VillagerHutsTests {
         WorkerEntity ranger = hireFighter(helper, owner, new ItemStack(Items.BOW));
         ranger.getInventory().addItem(new ItemStack(Items.ARROW, 16));
         assign(helper, ranger, POST_GROUND);
-        Creeper creeper = helper.spawn(EntityTypes.CREEPER, FOE_SPOT);
+        Creeper creeper = helper.spawn(EntityType.CREEPER, FOE_SPOT);
         creeper.setNoAi(true); // stands still (and never blows up)
         helper.succeedWhen(() -> {
             helper.assertTrue(warrior.getTarget() == null, "the warrior went for the creeper");
@@ -1132,7 +1137,7 @@ public final class VillagerHutsTests {
     private static void bodyguardFightsNearItsPlayer(GameTestHelper helper) {
         ServerPlayer owner = helper.makeMockServerPlayerInLevel();
         BlockPos stand = helper.absolutePos(FIGHTER_SPOT);
-        owner.snapTo(stand.getX() + 0.5, stand.getY(), stand.getZ() + 0.5, 0, 0);
+        owner.moveTo(stand.getX() + 0.5, stand.getY(), stand.getZ() + 0.5, 0, 0);
         WorkerEntity warrior = hireFighter(helper, owner, new ItemStack(Items.IRON_SWORD));
         helper.assertTrue(warrior.getOrder() == WorkerEntity.Order.FOLLOW, "not following");
         assertStatus(helper, warrior, "activity.villagerhuts.guarding_player");
@@ -1172,13 +1177,13 @@ public final class VillagerHutsTests {
         Player owner = helper.makeMockPlayer(GameType.SURVIVAL);
         WorkerEntity ranger = hireFighter(helper, owner, new ItemStack(Items.BOW));
         WorkerEntity farmer = FarmerItem.spawnFarmer(helper.getLevel(), helper.absolutePos(WORKER_SPOT), owner);
-        Villager villager = helper.spawn(EntityTypes.VILLAGER, new BlockPos(12, 1, 16));
-        Husk husk = helper.spawn(EntityTypes.HUSK, FOE_SPOT);
+        Villager villager = helper.spawn(EntityType.VILLAGER, new BlockPos(12, 2, 16));
+        Husk husk = helper.spawn(EntityType.HUSK, FOE_SPOT);
         for (LivingEntity friend : List.of(farmer, villager)) {
-            friend.hurtServer(helper.getLevel(), helper.getLevel().damageSources().mobAttack(ranger), 5.0F);
+            friend.hurt(helper.getLevel().damageSources().mobAttack(ranger), 5.0F);
             helper.assertTrue(friend.getHealth() == friend.getMaxHealth(), "a fighter hurt " + friend.getName().getString());
         }
-        husk.hurtServer(helper.getLevel(), helper.getLevel().damageSources().mobAttack(ranger), 5.0F);
+        husk.hurt(helper.getLevel().damageSources().mobAttack(ranger), 5.0F);
         helper.assertTrue(husk.getHealth() < husk.getMaxHealth(), "a fighter couldn't hurt a husk");
         helper.succeed();
     }
@@ -1194,7 +1199,7 @@ public final class VillagerHutsTests {
         helper.startSequence()
                 .thenIdle(200)
                 .thenExecute(() -> {
-                    helper.assertTrue(helper.getLevel().isDarkOutside(), "it isn't night");
+                    helper.assertTrue(helper.getLevel().isNight(), "it isn't night");
                     helper.assertTrue(!warrior.isSleeping(), "went to sleep on watch");
                     assertStatus(helper, warrior, "activity.villagerhuts.keeping_watch");
                 })
@@ -1212,7 +1217,7 @@ public final class VillagerHutsTests {
         helper.startSequence()
                 .thenWaitUntil(() -> {
                     helper.assertTrue(warrior.isSleeping(), "not asleep");
-                    helper.assertTrue(helper.getBlockState(BED_HEAD).getValue(AbstractBedBlock.OCCUPIED), "bed not taken");
+                    helper.assertTrue(helper.getBlockState(BED_HEAD).getValue(BedBlock.OCCUPIED), "bed not taken");
                 })
                 .thenExecute(() -> assertStatus(helper, warrior, "activity.villagerhuts.sleeping_after_watch"))
                 .thenExecute(() -> foe(helper))
@@ -1232,21 +1237,30 @@ public final class VillagerHutsTests {
     // The player right-clicks the worker holding this.
     private static void give(WorkerEntity worker, Player player, ItemStack stack) {
         player.setItemInHand(InteractionHand.MAIN_HAND, stack);
-        worker.interact(player, InteractionHand.MAIN_HAND, Vec3.ZERO);
+        player.interactOn(worker, InteractionHand.MAIN_HAND);
     }
 
     // A husk (a zombie that doesn't burn in daylight) in a fighter's guard zone, carrying an emerald it always drops.
     private static Husk foe(GameTestHelper helper) {
-        Husk husk = helper.spawn(EntityTypes.HUSK, FOE_SPOT);
+        Husk husk = helper.spawn(EntityType.HUSK, FOE_SPOT);
         husk.setItemSlot(EquipmentSlot.OFFHAND, new ItemStack(Items.EMERALD));
         husk.setGuaranteedDrop(EquipmentSlot.OFFHAND);
         return husk;
     }
 
+    // In 1.21.1 the platform sits one block above the test's ground, with air underneath: fill that in with dirt.
+    private static void groundUnderPlatform(GameTestHelper helper) {
+        for (int x = 0; x < 17; x++) {
+            for (int z = 0; z < 24; z++) {
+                helper.setBlock(new BlockPos(x, 0, z), Blocks.DIRT);
+            }
+        }
+    }
+
     private static void placeBed(GameTestHelper helper) {
-        BlockState bed = Blocks.BED.red().defaultBlockState().setValue(AbstractBedBlock.FACING, Direction.SOUTH);
-        helper.setBlock(BED_FOOT, bed.setValue(AbstractBedBlock.PART, BedPart.FOOT));
-        helper.setBlock(BED_HEAD, bed.setValue(AbstractBedBlock.PART, BedPart.HEAD));
+        BlockState bed = Blocks.RED_BED.defaultBlockState().setValue(BedBlock.FACING, Direction.SOUTH);
+        helper.setBlock(BED_FOOT, bed.setValue(BedBlock.PART, BedPart.FOOT));
+        helper.setBlock(BED_HEAD, bed.setValue(BedBlock.PART, BedPart.HEAD));
     }
 
     private static void assertName(GameTestHelper helper, WorkerEntity worker, WorkerRoster roster, @Nullable String expected) {
@@ -1258,10 +1272,10 @@ public final class VillagerHutsTests {
 
     /** The fenced farm and its chest (see the positions at the top). */
     private static void buildFarm(GameTestHelper helper) {
-        BlockState farmland = Blocks.FARMLAND.defaultBlockState().setValue(FarmlandBlock.MOISTURE, FarmlandBlock.MAX_MOISTURE);
+        BlockState farmland = Blocks.FARMLAND.defaultBlockState().setValue(FarmBlock.MOISTURE, FarmBlock.MAX_MOISTURE);
         for (int x = FARM_MIN_X; x <= FARM_MAX_X; x++) {
             for (int z = FARM_MIN_Z; z <= FARM_MAX_Z; z++) {
-                helper.setBlock(new BlockPos(x, 0, z), farmland);
+                helper.setBlock(new BlockPos(x, 1, z), farmland);
             }
         }
         helper.setBlock(FARM_WATER, Blocks.WATER);
@@ -1270,7 +1284,7 @@ public final class VillagerHutsTests {
             for (int z = FARM_MIN_Z - 1; z <= FARM_MAX_Z + 1; z++) {
                 boolean edge = x == FARM_MIN_X - 1 || x == FARM_MAX_X + 1 || z == FARM_MIN_Z - 1 || z == FARM_MAX_Z + 1;
                 if (edge && !(x == FENCE_GAP.getX() && z == FENCE_GAP.getZ())) {
-                    fence.add(new BlockPos(x, 1, z));
+                    fence.add(new BlockPos(x, 2, z));
                 }
             }
         }
@@ -1312,7 +1326,7 @@ public final class VillagerHutsTests {
         if (helper.getLevel().getBlockEntity(helper.absolutePos(relative)) instanceof Container container) {
             return container;
         }
-        throw helper.assertionException(Component.literal("no container at " + relative));
+        throw new GameTestAssertException("no container at " + relative);
     }
 
     private static int count(Container container, Item item) {
@@ -1330,7 +1344,7 @@ public final class VillagerHutsTests {
         int crops = 0;
         for (int x = FARM_MIN_X; x <= FARM_MAX_X; x++) {
             for (int z = FARM_MIN_Z; z <= FARM_MAX_Z; z++) {
-                if (helper.getBlockState(new BlockPos(x, 1, z)).getBlock() instanceof CropBlock) {
+                if (helper.getBlockState(new BlockPos(x, 2, z)).getBlock() instanceof CropBlock) {
                     crops++;
                 }
             }
@@ -1342,7 +1356,7 @@ public final class VillagerHutsTests {
         int found = 0;
         for (int x = FARM_MIN_X; x <= FARM_MAX_X; x++) {
             for (int z = FARM_MIN_Z; z <= FARM_MAX_Z; z++) {
-                if (helper.getBlockState(new BlockPos(x, 1, z)).is(block)) {
+                if (helper.getBlockState(new BlockPos(x, 2, z)).is(block)) {
                     found++;
                 }
             }
@@ -1356,8 +1370,8 @@ public final class VillagerHutsTests {
         helper.assertTrue(key.equals(expectedKey), "status was " + key + ", expected " + expectedKey);
     }
 
-    private static Identifier id(String path) {
-        return Identifier.fromNamespaceAndPath(VillagerHuts.MODID, path);
+    private static ResourceLocation id(String path) {
+        return ResourceLocation.fromNamespaceAndPath(VillagerHuts.MODID, path);
     }
 
     private VillagerHutsTests() {}

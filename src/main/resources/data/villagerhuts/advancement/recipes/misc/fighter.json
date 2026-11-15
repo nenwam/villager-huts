@@ -23,7 +23,7 @@
     },
     "has_the_recipe": {
       "conditions": {
-        "recipes": "villagerhuts:fighter"
+        "recipe": "villagerhuts:fighter"
       },
       "trigger": "minecraft:recipe_unlocked"
     }

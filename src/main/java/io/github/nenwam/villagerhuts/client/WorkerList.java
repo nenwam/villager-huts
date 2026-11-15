@@ -8,14 +8,12 @@ import java.util.Map;
 import io.github.nenwam.villagerhuts.network.WorkerInfo;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
-import net.minecraft.client.gui.GuiGraphicsExtractor;
-import net.minecraft.client.gui.components.ContainerObjectSelectionList;
+import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.events.GuiEventListener;
-import net.minecraft.client.gui.narration.NarratableEntry;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.locale.Language;
 import net.minecraft.network.chat.Component;
-import net.minecraft.resources.Identifier;
+import net.minecraft.resources.ResourceLocation;
 import net.minecraft.util.FormattedCharSequence;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
@@ -33,7 +31,7 @@ class WorkerList extends PanelList<WorkerList.Row> {
     private static final int STATUS_LINES = 2; // longer statuses are cut short (the details page has room for all of it)
 
     WorkerList(Minecraft minecraft) {
-        super(minecraft, rowHeight(1, false));
+        super(minecraft);
     }
 
     void setWorkers(List<WorkerInfo> workers) {
@@ -53,7 +51,7 @@ class WorkerList extends PanelList<WorkerList.Row> {
 
     // ---------------------------------------------------------------- rows
 
-    class Row extends ContainerObjectSelectionList.Entry<Row> {
+    class Row extends PanelList.Entry {
         private final WorkerInfo info;
         private final SlotToggle areaToggle;
         private final SlotButton infoButton;
@@ -73,15 +71,15 @@ class WorkerList extends PanelList<WorkerList.Row> {
             this.infoButton = new SlotButton(new ItemStack(Items.BOOK), Component.translatable("gui.villagerhuts.panel.details"),
                     button -> WorkerPanel.showDetails(info.id()));
             this.jobIcon = WorkerDetails.icon(info);
-            List<Map.Entry<Identifier, Integer>> items = new ArrayList<>(info.collected().entrySet());
-            items.sort(Map.Entry.<Identifier, Integer>comparingByValue().reversed());
-            for (Map.Entry<Identifier, Integer> item : items) {
-                this.collected.add(Map.entry(new ItemStack(BuiltInRegistries.ITEM.getValue(item.getKey())), item.getValue()));
+            List<Map.Entry<ResourceLocation, Integer>> items = new ArrayList<>(info.collected().entrySet());
+            items.sort(Map.Entry.<ResourceLocation, Integer>comparingByValue().reversed());
+            for (Map.Entry<ResourceLocation, Integer> item : items) {
+                this.collected.add(Map.entry(new ItemStack(BuiltInRegistries.ITEM.get(item.getKey())), item.getValue()));
             }
         }
 
         @Override
-        public void extractContent(GuiGraphicsExtractor graphics, int mouseX, int mouseY, boolean hovered, float a) {
+        void renderContent(GuiGraphics graphics, int mouseX, int mouseY, boolean hovered, float partialTick) {
             Font font = WorkerList.this.minecraft.font;
             int x = this.getContentX();
             int y = this.getContentY();
@@ -89,8 +87,8 @@ class WorkerList extends PanelList<WorkerList.Row> {
 
             // The worker: a slot in its color, holding its job tool, with its number like a stack count.
             NativeStyle.slot(graphics, x, y, ClientWorkers.color(this.info.number()));
-            graphics.item(this.jobIcon, x + 1, y + 1);
-            graphics.itemDecorations(font, this.jobIcon, x + 1, y + 1, String.valueOf(this.info.number()));
+            graphics.renderItem(this.jobIcon, x + 1, y + 1);
+            graphics.renderItemDecorations(font, this.jobIcon, x + 1, y + 1, String.valueOf(this.info.number()));
 
             this.areaToggle.setPosition(right - 18, y);
             this.infoButton.setPosition(right - 38, y);
@@ -123,20 +121,20 @@ class WorkerList extends PanelList<WorkerList.Row> {
                 }
                 Map.Entry<ItemStack, Integer> item = this.collected.get(i);
                 NativeStyle.slot(graphics, slotX, itemsY);
-                graphics.item(item.getKey(), slotX + 1, itemsY + 1);
-                graphics.itemDecorations(font, item.getKey(), slotX + 1, itemsY + 1, shortCount(item.getValue()));
-                if (mouseX >= slotX && mouseX < slotX + 18 && mouseY >= itemsY && mouseY < itemsY + 18) {
+                graphics.renderItem(item.getKey(), slotX + 1, itemsY + 1);
+                graphics.renderItemDecorations(font, item.getKey(), slotX + 1, itemsY + 1, shortCount(item.getValue()));
+                if (hovered && mouseX >= slotX && mouseX < slotX + 18 && mouseY >= itemsY && mouseY < itemsY + 18) {
                     hoveredItem = i;
                 }
             }
 
-            this.infoButton.extractRenderState(graphics, mouseX, mouseY, a);
-            this.areaToggle.extractRenderState(graphics, mouseX, mouseY, a);
+            this.infoButton.render(graphics, mouseX, mouseY, partialTick);
+            this.areaToggle.render(graphics, mouseX, mouseY, partialTick);
 
             if (hoveredItem >= 0) {
                 Map.Entry<ItemStack, Integer> item = this.collected.get(hoveredItem);
-                graphics.setTooltipForNextFrame(List.of(item.getKey().getHoverName().getVisualOrderText(),
-                        Component.translatable("gui.villagerhuts.panel.collected_count", item.getValue()).getVisualOrderText()), mouseX, mouseY);
+                NativeStyle.tooltip(List.of(item.getKey().getHoverName().getVisualOrderText(),
+                        Component.translatable("gui.villagerhuts.panel.collected_count", item.getValue()).getVisualOrderText()));
             }
         }
 
@@ -151,11 +149,6 @@ class WorkerList extends PanelList<WorkerList.Row> {
 
         @Override
         public List<? extends GuiEventListener> children() {
-            return List.of(this.infoButton, this.areaToggle);
-        }
-
-        @Override
-        public List<? extends NarratableEntry> narratables() {
             return List.of(this.infoButton, this.areaToggle);
         }
     }

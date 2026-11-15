@@ -9,7 +9,7 @@ import gzip
 import struct
 from pathlib import Path
 
-DATA_VERSION = 5023  # Minecraft 26.3 (version.json "world_version")
+DATA_VERSION = 3955  # Minecraft 1.21.1 (version.json "world_version")
 
 # ---------------------------------------------------------------- tiny NBT writer
 TAG_INT, TAG_STRING, TAG_LIST, TAG_COMPOUND = 3, 8, 9, 10
@@ -66,10 +66,10 @@ def write_structure(name, design, size):
         key = (block_name, tuple(sorted(props.items())))
         if key not in palette_index:
             palette_index[key] = len(palette)
-            # 26.3 uses "id"/"properties" (older versions used "Name"/"Properties").
-            entry = {"id": f"minecraft:{block_name}"}
+            # 1.21.1 reads "Name"/"Properties" (26.x renamed them "id"/"properties").
+            entry = {"Name": f"minecraft:{block_name}"}
             if props:
-                entry["properties"] = dict(sorted(props.items()))
+                entry["Properties"] = dict(sorted(props.items()))
             palette.append(entry)
         block = {"pos": ints(x, y, z), "state": Int(palette_index[key])}
         if nbt:

@@ -6,6 +6,9 @@
 
 # The license for you mod. This is mandatory metadata and allows for easier comprehension of your redistributive properties.
 # Review your options at https://choosealicense.com/. All rights reserved is the default copyright stance, and is thus the default here.
+# 1.21.1 needs the language loader named (the Java one) and its version.
+modLoader="javafml"
+loaderVersion="${loader_version_range}"
 license="${mod_license}"
 
 # A URL to refer people to when problems occur with this mod

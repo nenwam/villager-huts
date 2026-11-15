@@ -2,7 +2,7 @@ package io.github.nenwam.villagerhuts.client;
 
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
-import net.minecraft.client.gui.GuiGraphicsExtractor;
+import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.components.Tooltip;
 import net.minecraft.network.chat.Component;
@@ -20,12 +20,12 @@ class SymbolButton extends Button {
     }
 
     @Override
-    protected void extractContents(GuiGraphicsExtractor graphics, int mouseX, int mouseY, float a) {
+    protected void renderWidget(GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
         NativeStyle.slot(graphics, this.getX(), this.getY());
         if (this.isHoveredOrFocused()) {
             graphics.fill(this.getX() + 1, this.getY() + 1, this.getX() + 17, this.getY() + 17, NativeStyle.SLOT_HOVER);
         }
         Font font = Minecraft.getInstance().font;
-        graphics.text(font, this.symbol, this.getX() + 9 - font.width(this.symbol) / 2, this.getY() + 5, this.color, true);
+        graphics.drawString(font, this.symbol, this.getX() + 9 - font.width(this.symbol) / 2, this.getY() + 5, this.color, true);
     }
 }

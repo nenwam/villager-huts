@@ -4,35 +4,34 @@ import java.util.ArrayList;
 import java.util.List;
 
 import com.mojang.blaze3d.vertex.PoseStack;
+import com.mojang.blaze3d.vertex.VertexConsumer;
 
 import io.github.nenwam.villagerhuts.VillagerHuts;
 import io.github.nenwam.villagerhuts.entity.WorkerEntity;
 import io.github.nenwam.villagerhuts.network.WorkerInfo;
+import net.minecraft.client.Camera;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
-import net.minecraft.client.renderer.SubmitNodeCollector;
-import net.minecraft.client.renderer.rendertype.RenderTypes;
-import net.minecraft.client.renderer.state.level.CameraRenderState;
+import net.minecraft.client.multiplayer.ClientLevel;
+import net.minecraft.client.renderer.LightTexture;
+import net.minecraft.client.renderer.MultiBufferSource;
+import net.minecraft.client.renderer.RenderType;
 import net.minecraft.network.chat.Component;
-import net.minecraft.resources.ResourceKey;
 import net.minecraft.util.FormattedCharSequence;
-import net.minecraft.util.LightCoordsUtil;
 import net.minecraft.world.entity.Entity;
-import net.minecraft.world.level.Level;
 import net.minecraft.world.level.levelgen.structure.BoundingBox;
 import net.minecraft.world.phys.Vec3;
 import net.minecraft.world.phys.shapes.Shapes;
-import net.minecraft.world.phys.shapes.VoxelShape;
 import net.neoforged.api.distmarker.Dist;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.fml.common.EventBusSubscriber;
-import net.neoforged.neoforge.client.event.ExtractLevelRenderStateEvent;
-import net.neoforged.neoforge.client.event.SubmitCustomGeometryEvent;
+import net.neoforged.neoforge.client.event.RenderLevelStageEvent;
 
 /**
- * For each worker whose area is shown (from the worker panel): outlines of its farm, its chest and its bed in
- * the worker's color, its number floating above each, and its number above the worker's head.
+ * For each worker whose area is shown (from the worker panel): outlines of its farm (or guard area), its chest and
+ * its bed in the worker's color, its number floating above each, and its number above the worker's head.
  * Numbers face the camera, show through terrain, and grow with distance so they stay readable.
+ * Drawn after particles, so the outlines and numbers sit over everything in the world.
  */
 @EventBusSubscriber(modid = VillagerHuts.MODID, value = Dist.CLIENT)
 public final class WorkerAreaHighlights {
@@ -47,25 +46,21 @@ public final class WorkerAreaHighlights {
 
     private record Label(Vec3 pos, int color, Component text, float scale) {}
 
-    private record Frame(List<Box> boxes, List<Label> labels) {
-        static final Frame EMPTY = new Frame(List.of(), List.of());
-    }
-
-    // Snapshot taken while the frame is being prepared, then drawn (as NeoForge asks).
-    private static volatile Frame frame = Frame.EMPTY;
-
     @SubscribeEvent
-    static void onExtract(ExtractLevelRenderStateEvent event) {
-        if (!ClientWorkers.anyShown()) {
-            frame = Frame.EMPTY;
+    static void onRenderLevel(RenderLevelStageEvent event) {
+        if (event.getStage() != RenderLevelStageEvent.Stage.AFTER_PARTICLES || !ClientWorkers.anyShown()) {
             return;
         }
-        ResourceKey<Level> dimension = event.getLevel().dimension();
-        float partialTick = event.getDeltaTracker().getGameTimeDeltaPartialTick(false);
+        Minecraft minecraft = Minecraft.getInstance();
+        ClientLevel level = minecraft.level;
+        if (level == null) {
+            return;
+        }
+        float partialTick = event.getPartialTick().getGameTimeDeltaPartialTick(false);
         List<Box> boxes = new ArrayList<>();
         List<Label> labels = new ArrayList<>();
         for (WorkerInfo worker : ClientWorkers.workers()) {
-            if (!ClientWorkers.isShown(worker.id()) || !worker.dimension().equals(dimension)) {
+            if (!ClientWorkers.isShown(worker.id()) || !worker.dimension().equals(level.dimension())) {
                 continue;
             }
             int color = ClientWorkers.color(worker.number());
@@ -78,63 +73,56 @@ public final class WorkerAreaHighlights {
                         area.minZ() + area.getZSpan() / 2.0), color, number, AREA_LABEL_SCALE));
             }
             if (worker.storage().isPresent()) {
-                BoundingBox chest = AssignPreview.storageBox(event.getLevel(), worker.storage().get());
+                BoundingBox chest = AssignPreview.storageBox(level, worker.storage().get());
                 boxes.add(new Box(chest, color));
                 labels.add(new Label(new Vec3(chest.minX() + chest.getXSpan() / 2.0, chest.maxY() + 1 + CHEST_LABEL_HEIGHT,
                         chest.minZ() + chest.getZSpan() / 2.0), color, number, HEAD_LABEL_SCALE));
             }
-
             if (worker.bed().isPresent()) {
-                BoundingBox bed = AssignPreview.bedBox(event.getLevel(), worker.bed().get());
+                BoundingBox bed = AssignPreview.bedBox(level, worker.bed().get());
                 boxes.add(new Box(bed, color));
                 labels.add(new Label(new Vec3(bed.minX() + bed.getXSpan() / 2.0, bed.maxY() + 1 + CHEST_LABEL_HEIGHT,
                         bed.minZ() + bed.getZSpan() / 2.0), color, number, HEAD_LABEL_SCALE));
             }
 
             // Above the worker's head (only while it's near enough to be loaded on your side).
-            Entity entity = event.getLevel().getEntity(worker.id());
+            Entity entity = AssignPreview.findEntity(level, worker.id());
             if (entity instanceof WorkerEntity && entity.isAlive()) {
                 double above = entity.getBbHeight() + (entity.hasCustomName() ? 0.85 : 0.55); // clear of a name tag
                 labels.add(new Label(entity.getPosition(partialTick).add(0, above, 0), color, number, HEAD_LABEL_SCALE));
             }
         }
-        frame = new Frame(List.copyOf(boxes), List.copyOf(labels));
-    }
-
-    @SubscribeEvent
-    static void onSubmit(SubmitCustomGeometryEvent event) {
-        Frame current = frame;
-        if (current.boxes().isEmpty() && current.labels().isEmpty()) {
+        if (boxes.isEmpty() && labels.isEmpty()) {
             return;
         }
-        CameraRenderState camera = event.getLevelRenderState().cameraRenderState;
-        Vec3 cam = camera.pos;
+
+        Camera camera = event.getCamera();
+        Vec3 cam = camera.getPosition();
         PoseStack poseStack = event.getPoseStack();
-        SubmitNodeCollector collector = event.getSubmitNodeCollector();
-        Font font = Minecraft.getInstance().font;
-        float lineWidth = Minecraft.getInstance().getWindow().getAppropriateLineWidth() * 2.0F;
+        MultiBufferSource.BufferSource buffers = minecraft.renderBuffers().bufferSource();
+        Font font = minecraft.font;
 
-        for (Box box : current.boxes()) {
+        VertexConsumer lines = buffers.getBuffer(RenderType.lines());
+        for (Box box : boxes) {
             BoundingBox area = box.area();
-            VoxelShape shape = Shapes.box(0, 0, 0, area.getXSpan(), area.getYSpan(), area.getZSpan());
-            poseStack.pushPose();
-            poseStack.translate(area.minX() - cam.x, area.minY() - cam.y, area.minZ() - cam.z);
-            collector.submitShapeOutline(poseStack, shape, RenderTypes.linesTranslucent(), box.color(), lineWidth, false);
-            poseStack.popPose();
+            AssignPreview.drawShape(poseStack, lines, Shapes.box(0, 0, 0, area.getXSpan(), area.getYSpan(), area.getZSpan()),
+                    area.minX() - cam.x, area.minY() - cam.y, area.minZ() - cam.z, box.color());
         }
+        buffers.endBatch(RenderType.lines());
 
-        for (Label label : current.labels()) {
+        for (Label label : labels) {
             Vec3 at = label.pos();
             float scale = label.scale() * Math.max(1.0F, (float) at.distanceTo(cam) / GROW_DISTANCE);
             FormattedCharSequence text = label.text().getVisualOrderText();
             poseStack.pushPose();
             poseStack.translate(at.x - cam.x, at.y - cam.y, at.z - cam.z);
-            poseStack.rotate(camera.orientation);
+            poseStack.mulPose(camera.rotation());
             poseStack.scale(scale, -scale, scale);
-            collector.submitText(poseStack, -font.width(text) / 2.0F, 0.0F, text, false, Font.DisplayMode.SEE_THROUGH,
-                    LightCoordsUtil.FULL_BRIGHT, label.color(), LABEL_BACKGROUND, 0);
+            font.drawInBatch(text, -font.width(text) / 2.0F, 0.0F, label.color(), false, poseStack.last().pose(), buffers,
+                    Font.DisplayMode.SEE_THROUGH, LABEL_BACKGROUND, LightTexture.FULL_BRIGHT);
             poseStack.popPose();
         }
+        buffers.endBatch();
     }
 
     private WorkerAreaHighlights() {}

@@ -113,7 +113,7 @@ public class FollowOrStayGoal extends Goal {
             Vec3 at = Vec3.atBottomCenterOf(spot);
             if (WorkReach.isStandable(this.worker.level(), spot)
                     && this.worker.level().noCollision(this.worker, this.worker.getBoundingBox().move(at.subtract(this.worker.position())))) {
-                this.worker.snapTo(at.x, at.y, at.z, this.worker.getYRot(), this.worker.getXRot());
+                this.worker.moveTo(at.x, at.y, at.z, this.worker.getYRot(), this.worker.getXRot());
                 this.worker.getNavigation().stop();
                 return;
             }

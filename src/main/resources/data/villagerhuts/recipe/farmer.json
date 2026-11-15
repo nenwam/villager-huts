@@ -1,11 +1,18 @@
 {
   "type": "minecraft:crafting_shapeless",
   "ingredients": [
-    "minecraft:iron_hoe",
-    "minecraft:composter",
-    "minecraft:golden_carrot"
+    {
+      "item": "minecraft:iron_hoe"
+    },
+    {
+      "item": "minecraft:composter"
+    },
+    {
+      "item": "minecraft:golden_carrot"
+    }
   ],
   "result": {
-    "id": "villagerhuts:farmer"
+    "id": "villagerhuts:farmer",
+    "count": 1
   }
 }

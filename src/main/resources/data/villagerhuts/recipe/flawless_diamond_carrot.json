@@ -2,8 +2,12 @@
   "type": "minecraft:crafting_shaped",
   "category": "misc",
   "key": {
-    "#": "minecraft:diamond_block",
-    "C": "minecraft:carrot"
+    "#": {
+      "item": "minecraft:diamond_block"
+    },
+    "C": {
+      "item": "minecraft:carrot"
+    }
   },
   "pattern": [
     "###",
@@ -11,6 +15,7 @@
     "###"
   ],
   "result": {
-    "id": "villagerhuts:flawless_diamond_carrot"
+    "id": "villagerhuts:flawless_diamond_carrot",
+    "count": 1
   }
 }

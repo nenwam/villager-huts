@@ -9,20 +9,17 @@ import io.github.nenwam.villagerhuts.network.ShareWorkerPayload;
 import io.github.nenwam.villagerhuts.network.WorkerInfo;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
-import net.minecraft.client.gui.GuiGraphicsExtractor;
-import net.minecraft.client.gui.components.AbstractWidget;
+import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.Button;
-import net.minecraft.client.gui.components.ContainerObjectSelectionList;
-import net.minecraft.client.gui.components.PlayerFaceExtractor;
+import net.minecraft.client.gui.components.PlayerFaceRenderer;
 import net.minecraft.client.gui.components.Tooltip;
 import net.minecraft.client.gui.components.events.GuiEventListener;
-import net.minecraft.client.gui.narration.NarratableEntry;
 import net.minecraft.client.multiplayer.ClientPacketListener;
 import net.minecraft.client.multiplayer.PlayerInfo;
 import net.minecraft.client.resources.DefaultPlayerSkin;
+import net.minecraft.client.resources.PlayerSkin;
 import net.minecraft.network.chat.Component;
 import net.minecraft.util.FormattedCharSequence;
-import net.minecraft.world.entity.player.PlayerSkin;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import org.jspecify.annotations.Nullable;
@@ -46,14 +43,14 @@ class WorkerSharing extends PanelList<WorkerSharing.Row> {
     private @Nullable UUID confirmingGive;    // the player whose "give" button was clicked once
 
     WorkerSharing(Minecraft minecraft) {
-        super(minecraft, PLAYER_ROW);
+        super(minecraft);
     }
 
     /** Rebuilds the rows if the worker or the players online changed. */
     void refresh(@Nullable WorkerInfo info) {
         List<PlayerInfo> online = onlinePlayers();
         String now = info == null ? "" : info.id() + "|" + info.owner() + "|" + info.shared() + "|" + info.yours() + "|"
-                + online.stream().map(p -> p.getProfile().id().toString()).toList() + "|" + this.confirmingGive;
+                + online.stream().map(p -> p.getProfile().getId().toString()).toList() + "|" + this.confirmingGive;
         if (now.equals(this.shown)) {
             return;
         }
@@ -97,11 +94,11 @@ class WorkerSharing extends PanelList<WorkerSharing.Row> {
         this.addEntry(new TextRow(Component.translatable("gui.villagerhuts.sharing.online"), NativeStyle.LABEL), TEXT_ROW);
         int candidates = 0;
         for (PlayerInfo player : online) {
-            UUID id = player.getProfile().id();
+            UUID id = player.getProfile().getId();
             if (id.equals(info.owner().id()) || info.shared().stream().anyMatch(shared -> shared.id().equals(id))) {
                 continue;
             }
-            String name = player.getProfile().name();
+            String name = player.getProfile().getName();
             candidates++;
             this.addEntry(new PlayerRow(id, name, null, List.of(new SymbolButton("+", ADD_COLOR,
                     Component.translatable("gui.villagerhuts.sharing.share", name),
@@ -141,7 +138,7 @@ class WorkerSharing extends PanelList<WorkerSharing.Row> {
             return List.of();
         }
         List<PlayerInfo> players = new ArrayList<>(connection.getOnlinePlayers());
-        players.sort(Comparator.comparing(player -> player.getProfile().name(), String.CASE_INSENSITIVE_ORDER));
+        players.sort(Comparator.comparing(player -> player.getProfile().getName(), String.CASE_INSENSITIVE_ORDER));
         return players;
     }
 
@@ -153,7 +150,7 @@ class WorkerSharing extends PanelList<WorkerSharing.Row> {
 
     // ---------------------------------------------------------------- rows
 
-    abstract static class Row extends ContainerObjectSelectionList.Entry<Row> {
+    abstract static class Row extends PanelList.Entry {
     }
 
     /** A heading, or a note like "nobody yet". */
@@ -167,7 +164,7 @@ class WorkerSharing extends PanelList<WorkerSharing.Row> {
         }
 
         @Override
-        public void extractContent(GuiGraphicsExtractor graphics, int mouseX, int mouseY, boolean hovered, float a) {
+        void renderContent(GuiGraphics graphics, int mouseX, int mouseY, boolean hovered, float partialTick) {
             Font font = WorkerSharing.this.minecraft.font;
             FormattedCharSequence line = WorkerList.fit(font, this.text, this.getContentRight() - this.getContentX());
             NativeStyle.text(graphics, font, line, this.getContentX(), this.getContentY() + 2, this.color);
@@ -175,11 +172,6 @@ class WorkerSharing extends PanelList<WorkerSharing.Row> {
 
         @Override
         public List<? extends GuiEventListener> children() {
-            return List.of();
-        }
-
-        @Override
-        public List<? extends NarratableEntry> narratables() {
             return List.of();
         }
     }
@@ -199,7 +191,7 @@ class WorkerSharing extends PanelList<WorkerSharing.Row> {
         }
 
         @Override
-        public void extractContent(GuiGraphicsExtractor graphics, int mouseX, int mouseY, boolean hovered, float a) {
+        void renderContent(GuiGraphics graphics, int mouseX, int mouseY, boolean hovered, float partialTick) {
             Font font = WorkerSharing.this.minecraft.font;
             int x = this.getContentX();
             int y = this.getContentY();
@@ -207,11 +199,11 @@ class WorkerSharing extends PanelList<WorkerSharing.Row> {
             for (int i = 0; i < this.buttons.size(); i++) {
                 Button button = this.buttons.get(this.buttons.size() - 1 - i);
                 button.setPosition(right - 18 - i * 20, y);
-                button.extractRenderState(graphics, mouseX, mouseY, a);
+                button.render(graphics, mouseX, mouseY, partialTick);
             }
             int textRight = right - this.buttons.size() * 20 - 2;
             NativeStyle.slot(graphics, x, y);
-            PlayerFaceExtractor.extractRenderState(graphics, WorkerSharing.this.skin(this.player), x + 1, y + 1, 16);
+            PlayerFaceRenderer.draw(graphics, WorkerSharing.this.skin(this.player), x + 1, y + 1, 16);
             Component label = this.note == null ? Component.literal(this.name)
                     : Component.literal(this.name + " ").append(this.note.copy().withColor(NativeStyle.LABEL_SOFT & 0xFFFFFF));
             NativeStyle.text(graphics, font, WorkerList.fit(font, label, textRight - x - 21), x + 21, y + 5, NativeStyle.LABEL);
@@ -220,11 +212,6 @@ class WorkerSharing extends PanelList<WorkerSharing.Row> {
         @Override
         public List<? extends GuiEventListener> children() {
             return this.buttons;
-        }
-
-        @Override
-        public List<? extends NarratableEntry> narratables() {
-            return this.buttons.stream().map(button -> (AbstractWidget) button).toList();
         }
     }
 }

@@ -23,7 +23,7 @@
     },
     "has_the_recipe": {
       "conditions": {
-        "recipes": "villagerhuts:flawless_diamond_carrot"
+        "recipe": "villagerhuts:flawless_diamond_carrot"
       },
       "trigger": "minecraft:recipe_unlocked"
     }

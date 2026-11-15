@@ -11,6 +11,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 
+import com.mojang.authlib.GameProfile;
 import com.mojang.serialization.Codec;
 import com.mojang.serialization.MapCodec;
 import com.mojang.serialization.codecs.RecordCodecBuilder;
@@ -18,19 +19,21 @@ import com.mojang.serialization.codecs.RecordCodecBuilder;
 import io.github.nenwam.villagerhuts.VillagerHuts;
 import io.github.nenwam.villagerhuts.entity.WorkerEntity;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.HolderLookup;
 import net.minecraft.core.UUIDUtil;
 import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.nbt.CompoundTag;
+import net.minecraft.nbt.NbtOps;
 import net.minecraft.network.chat.Component;
-import net.minecraft.resources.Identifier;
+import net.minecraft.resources.ResourceLocation;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
-import net.minecraft.server.players.NameAndId;
+import net.minecraft.server.players.GameProfileCache;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.levelgen.structure.BoundingBox;
 import net.minecraft.world.level.saveddata.SavedData;
-import net.minecraft.world.level.saveddata.SavedDataType;
 import org.jspecify.annotations.Nullable;
 
 /**
@@ -50,14 +53,14 @@ public final class WorkerRoster extends SavedData {
      * @param tool  the item it works or fights with, if any (for its icon)
      * @param field a farmer's field: farming, clearing or cleared (WorkerEntity.Field)
      */
-    public record Progress(int rank, int harvestedToday, Map<Identifier, Integer> collected, Map<Identifier, Integer> defeated,
-                           Optional<Identifier> tool, String field) {
+    public record Progress(int rank, int harvestedToday, Map<ResourceLocation, Integer> collected, Map<ResourceLocation, Integer> defeated,
+                           Optional<ResourceLocation> tool, String field) {
         static final MapCodec<Progress> MAP_CODEC = RecordCodecBuilder.mapCodec(i -> i.group(
                 Codec.INT.optionalFieldOf("rank", 1).forGetter(Progress::rank),
                 Codec.INT.optionalFieldOf("harvested_today", 0).forGetter(Progress::harvestedToday),
-                Codec.unboundedMap(Identifier.CODEC, Codec.INT).fieldOf("collected").forGetter(Progress::collected),
-                Codec.unboundedMap(Identifier.CODEC, Codec.INT).optionalFieldOf("defeated", Map.of()).forGetter(Progress::defeated),
-                Identifier.CODEC.optionalFieldOf("tool").forGetter(Progress::tool),
+                Codec.unboundedMap(ResourceLocation.CODEC, Codec.INT).fieldOf("collected").forGetter(Progress::collected),
+                Codec.unboundedMap(ResourceLocation.CODEC, Codec.INT).optionalFieldOf("defeated", Map.of()).forGetter(Progress::defeated),
+                ResourceLocation.CODEC.optionalFieldOf("tool").forGetter(Progress::tool),
                 Codec.STRING.optionalFieldOf("field", WorkerEntity.Field.FARMING.id()).forGetter(Progress::field)
         ).apply(i, Progress::new));
     }
@@ -97,15 +100,15 @@ public final class WorkerRoster extends SavedData {
             return this.progress.harvestedToday();
         }
 
-        public Map<Identifier, Integer> collected() {
+        public Map<ResourceLocation, Integer> collected() {
             return this.progress.collected();
         }
 
-        public Map<Identifier, Integer> defeated() {
+        public Map<ResourceLocation, Integer> defeated() {
             return this.progress.defeated();
         }
 
-        public Optional<Identifier> tool() {
+        public Optional<ResourceLocation> tool() {
             return this.progress.tool();
         }
 
@@ -129,8 +132,9 @@ public final class WorkerRoster extends SavedData {
             .fieldOf("workers").codec()
             .xmap(WorkerRoster::new, roster -> roster.entries);
 
-    public static final SavedDataType<WorkerRoster> TYPE = new SavedDataType<>(
-            Identifier.fromNamespaceAndPath(VillagerHuts.MODID, "workers"), WorkerRoster::new, CODEC);
+    private static final String FILE_NAME = VillagerHuts.MODID + "_workers"; // data/villagerhuts_workers.dat in the world
+
+    public static final SavedData.Factory<WorkerRoster> FACTORY = new SavedData.Factory<>(WorkerRoster::new, WorkerRoster::load);
 
     private final Map<UUID, Entry> entries;
 
@@ -143,7 +147,17 @@ public final class WorkerRoster extends SavedData {
     }
 
     public static WorkerRoster get(MinecraftServer server) {
-        return server.getDataStorage().computeIfAbsent(TYPE);
+        return server.overworld().getDataStorage().computeIfAbsent(FACTORY, FILE_NAME);
+    }
+
+    private static WorkerRoster load(CompoundTag tag, HolderLookup.Provider registries) {
+        return CODEC.parse(NbtOps.INSTANCE, tag).result().orElseGet(WorkerRoster::new);
+    }
+
+    @Override
+    public CompoundTag save(CompoundTag tag, HolderLookup.Provider registries) {
+        CODEC.encodeStart(NbtOps.INSTANCE, this).result().ifPresent(encoded -> tag.merge((CompoundTag) encoded));
+        return tag;
     }
 
     /**
@@ -255,7 +269,8 @@ public final class WorkerRoster extends SavedData {
         if (online != null) {
             return online.getName();
         }
-        return server.services().nameToIdCache().get(player).map(NameAndId::name).<Component>map(Component::literal)
+        GameProfileCache profiles = server.getProfileCache();
+        return Optional.ofNullable(profiles).flatMap(cache -> cache.get(player)).map(GameProfile::getName).<Component>map(Component::literal)
                 .orElseGet(() -> Component.translatable("gui.villagerhuts.someone"));
     }
 

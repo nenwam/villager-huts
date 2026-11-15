@@ -1,6 +1,6 @@
 package io.github.nenwam.villagerhuts.item;
 
-import java.util.function.Consumer;
+import java.util.List;
 
 import io.github.nenwam.villagerhuts.entity.WorkerEntity;
 import io.github.nenwam.villagerhuts.job.WorkerJob;
@@ -13,7 +13,6 @@ import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.TooltipFlag;
-import net.minecraft.world.item.component.TooltipDisplay;
 import net.minecraft.world.item.context.UseOnContext;
 import org.jspecify.annotations.Nullable;
 
@@ -39,10 +38,10 @@ public class FighterItem extends Item {
     }
 
     @Override
-    public void appendHoverText(ItemStack stack, Item.TooltipContext context, TooltipDisplay display, Consumer<Component> builder, TooltipFlag flag) {
-        builder.accept(Component.translatable("item.villagerhuts.fighter.tooltip").withStyle(ChatFormatting.GRAY));
-        builder.accept(Component.translatable("item.villagerhuts.fighter.tooltip.arm").withStyle(ChatFormatting.GRAY));
-        builder.accept(Component.translatable("item.villagerhuts.fighter.tooltip.assign").withStyle(ChatFormatting.GRAY));
-        builder.accept(Component.translatable("item.villagerhuts.fighter.tooltip.upgrade").withStyle(ChatFormatting.GRAY));
+    public void appendHoverText(ItemStack stack, Item.TooltipContext context, List<Component> builder, TooltipFlag flag) {
+        builder.add(Component.translatable("item.villagerhuts.fighter.tooltip").withStyle(ChatFormatting.GRAY));
+        builder.add(Component.translatable("item.villagerhuts.fighter.tooltip.arm").withStyle(ChatFormatting.GRAY));
+        builder.add(Component.translatable("item.villagerhuts.fighter.tooltip.assign").withStyle(ChatFormatting.GRAY));
+        builder.add(Component.translatable("item.villagerhuts.fighter.tooltip.upgrade").withStyle(ChatFormatting.GRAY));
     }
 }
