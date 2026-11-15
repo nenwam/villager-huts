@@ -48,6 +48,11 @@ import org.jspecify.annotations.Nullable;
  * Harvests count toward the worker's daily limit (WorkerEntity.takeHarvest): one that would take it over the
  * limit isn't made, and the worker is done for the day (RestGoal) until the next morning.
  *
+ * Clearing the field (from the worker panel: WorkerEntity.clearField): instead of all that, it pulls up every crop
+ * on the farm, ripe or not, keeping what they drop (DepositItemsGoal puts it all in the chest). Clearing isn't
+ * harvesting, so it doesn't count toward the daily limit. Once it's cleared it does nothing here until it's told to
+ * start farming again.
+ *
  * The farmer walks onto the crop's own spot (via a route that really gets there, e.g. through
  * the gap in the fence) and only works when nothing solid is in between, so it never
  * harvests through a fence or wall. For water it stands beside the spot instead.
@@ -59,7 +64,7 @@ public class FarmerWorkGoal extends Goal implements DescribesActivity {
     private static final double REACH = 1.5;
     private static final int ROUTE_TRIES = 4;              // nearest spots to try planning a route to, per search
 
-    private enum Task { WATER, TILL, CROP, BONE_MEAL }
+    private enum Task { WATER, TILL, CROP, BONE_MEAL, PULL_UP }
 
     /** Where to stand, the block to work on, and what to do there. Water first, then the nearest. */
     private record Work(BlockPos standAt, BlockPos at, Task task) {}
@@ -81,7 +86,8 @@ public class FarmerWorkGoal extends Goal implements DescribesActivity {
 
     @Override
     public boolean canUse() {
-        if (this.worker.getJob() != WorkerJob.FARMER || this.worker.getFarmArea() == null || this.worker.isDoneForToday()) {
+        if (this.worker.getJob() != WorkerJob.FARMER || this.worker.getFarmArea() == null
+                || this.worker.getField() == WorkerEntity.Field.CLEARED || (this.worker.isDoneForToday() && !this.clearing())) {
             return false;
         }
         // Pockets full: stop and let DepositItemsGoal empty them first.
@@ -113,7 +119,11 @@ public class FarmerWorkGoal extends Goal implements DescribesActivity {
     @Override
     public boolean canContinueToUse() {
         return this.target != null && this.worker.getJob() == WorkerJob.FARMER && this.ticksOnTarget < GIVE_UP_TICKS
-                && !this.worker.isDoneForToday();
+                && (this.clearing() || (!this.worker.isDoneForToday() && !this.worker.isFieldPaused()));
+    }
+
+    private boolean clearing() {
+        return this.worker.getField() == WorkerEntity.Field.CLEARING;
     }
 
     @Override
@@ -171,6 +181,7 @@ public class FarmerWorkGoal extends Goal implements DescribesActivity {
             case TILL -> this.till(level, pos);
             case CROP -> this.workOn(level, pos);
             case BONE_MEAL -> this.useBoneMeal(level, pos);
+            case PULL_UP -> this.pullUp(level, pos);
         };
         if (worked) {
             this.worker.markWorked();
@@ -197,6 +208,9 @@ public class FarmerWorkGoal extends Goal implements DescribesActivity {
                 case BONE_MEAL -> {
                     return Component.translatable("activity.villagerhuts.bone_meal", state.getBlock().getName());
                 }
+                case PULL_UP -> {
+                    return Component.translatable("activity.villagerhuts.pulling_up", state.getBlock().getName());
+                }
                 case CROP -> {
                     if (state.getBlock() instanceof CropBlock crop && crop.isMaxAge(state)) {
                         return Component.translatable("activity.villagerhuts.harvesting", state.getBlock().getName());
@@ -217,6 +231,9 @@ public class FarmerWorkGoal extends Goal implements DescribesActivity {
         }
         int now = this.worker.tickCount;
         this.skipUntil.values().removeIf(until -> until < now);
+        if (this.clearing()) {
+            return this.findCropsToPullUp(level, area);
+        }
         boolean hasSeeds = this.findSeedSlot(null) >= 0;
         boolean hasBoneMeal = this.worker.hasBoneMeal();
         boolean tills = this.worker.tillsLand();
@@ -298,6 +315,45 @@ public class FarmerWorkGoal extends Goal implements DescribesActivity {
         found.sort(Comparator.<Work>comparingInt(work -> work.task() == Task.WATER ? 0 : 1)
                 .thenComparingDouble(work -> work.standAt().distToCenterSqr(this.worker.position())));
         return found;
+    }
+
+    // Clearing: every crop on the farm, nearest first. Tells the worker when there are none left.
+    private List<Work> findCropsToPullUp(ServerLevel level, BoundingBox area) {
+        List<Work> found = new ArrayList<>();
+        boolean blocked = false;
+        for (BlockPos pos : BlockPos.betweenClosed(area.minX(), area.minY(), area.minZ(), area.maxX(), area.maxY(), area.maxZ())) {
+            if (!level.isLoaded(pos) || !(level.getBlockState(pos).getBlock() instanceof CropBlock) || !isFarmland(level.getBlockState(pos.below()))) {
+                continue;
+            }
+            if (this.skipUntil.containsKey(pos)) {
+                blocked = true;
+            } else {
+                found.add(new Work(pos.immutable(), pos.immutable(), Task.PULL_UP));
+            }
+        }
+        boolean gone = found.isEmpty() && !blocked;
+        this.worker.setCropsGone(gone);
+        this.worker.setFarmCounts(-1, -1, 0, 0, gone, blocked);
+        found.sort(Comparator.comparingDouble(work -> work.standAt().distToCenterSqr(this.worker.position())));
+        return found;
+    }
+
+    /** Clearing: pulls up the crop at pos, ripe or not, keeping what it drops (a ripe one's harvest counts as collected). */
+    private boolean pullUp(ServerLevel level, BlockPos pos) {
+        BlockState state = level.getBlockState(pos);
+        if (!(state.getBlock() instanceof CropBlock crop)) {
+            return false;
+        }
+        boolean ripe = crop.isMaxAge(state);
+        List<ItemStack> drops = Block.getDrops(state, level, pos, null, this.worker, this.worker.getMainHandItem());
+        level.destroyBlock(pos, false, this.worker);
+        drops.forEach(drop -> {
+            if (ripe) {
+                this.worker.recordCollected(drop);
+            }
+            this.worker.storeOrDrop(level, drop);
+        });
+        return true;
     }
 
     // A spot next to the water's hole to stand on while pouring it, nearest the worker.

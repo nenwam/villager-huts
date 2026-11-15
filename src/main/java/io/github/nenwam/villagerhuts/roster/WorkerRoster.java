@@ -47,16 +47,18 @@ public final class WorkerRoster extends SavedData {
     /**
      * How far a worker has got: its rank, today's harvest, what it has collected and defeated, and its tool.
      * Saved alongside the rest of its entry (not nested), so older saves load as they are.
-     * @param tool the item it works or fights with, if any (for its icon)
+     * @param tool  the item it works or fights with, if any (for its icon)
+     * @param field a farmer's field: farming, clearing or cleared (WorkerEntity.Field)
      */
     public record Progress(int rank, int harvestedToday, Map<Identifier, Integer> collected, Map<Identifier, Integer> defeated,
-                           Optional<Identifier> tool) {
+                           Optional<Identifier> tool, String field) {
         static final MapCodec<Progress> MAP_CODEC = RecordCodecBuilder.mapCodec(i -> i.group(
                 Codec.INT.optionalFieldOf("rank", 1).forGetter(Progress::rank),
                 Codec.INT.optionalFieldOf("harvested_today", 0).forGetter(Progress::harvestedToday),
                 Codec.unboundedMap(Identifier.CODEC, Codec.INT).fieldOf("collected").forGetter(Progress::collected),
                 Codec.unboundedMap(Identifier.CODEC, Codec.INT).optionalFieldOf("defeated", Map.of()).forGetter(Progress::defeated),
-                Identifier.CODEC.optionalFieldOf("tool").forGetter(Progress::tool)
+                Identifier.CODEC.optionalFieldOf("tool").forGetter(Progress::tool),
+                Codec.STRING.optionalFieldOf("field", WorkerEntity.Field.FARMING.id()).forGetter(Progress::field)
         ).apply(i, Progress::new));
     }
 
@@ -170,7 +172,8 @@ public final class WorkerRoster extends SavedData {
                 Optional.ofNullable(worker.getWorkArea()), Optional.ofNullable(worker.getStoragePos()), Optional.ofNullable(worker.getBedPos()),
                 new Progress(worker.getRank(), worker.getHarvestedToday(), Map.copyOf(worker.getCollected()), Map.copyOf(worker.getDefeated()),
                         worker.getMainHandItem().isEmpty() ? Optional.empty()
-                                : Optional.of(BuiltInRegistries.ITEM.getKey(worker.getMainHandItem().getItem())))));
+                                : Optional.of(BuiltInRegistries.ITEM.getKey(worker.getMainHandItem().getItem())),
+                        worker.getField().id())));
         this.setDirty();
     }
 

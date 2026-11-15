@@ -37,7 +37,7 @@ public final class ModNetwork {
 
     @SubscribeEvent
     static void register(RegisterPayloadHandlersEvent event) {
-        PayloadRegistrar registrar = event.registrar("3");
+        PayloadRegistrar registrar = event.registrar("4");
         registrar.playToServer(RequestWorkersPayload.TYPE, RequestWorkersPayload.STREAM_CODEC, ModNetwork::sendWorkerList);
         registrar.playToServer(RenameWorkerPayload.TYPE, RenameWorkerPayload.STREAM_CODEC, ModNetwork::handleRename);
         registrar.playToServer(WorkerCommandPayload.TYPE, WorkerCommandPayload.STREAM_CODEC, ModNetwork::handleCommand);
@@ -76,7 +76,8 @@ public final class ModNetwork {
                     entry.employedTicks(), entry.dimension(), entry.farm(), entry.storage(), entry.bed(),
                     entry.collected(), live != null ? live.getCarriedCount() : 0, playerRef(server, entry.owner()),
                     entry.owner().equals(player), shared, entry.rank(), entry.harvestedToday(), dailyLimit,
-                    tool, live != null ? (int) Math.ceil(live.getHealth()) : -1, maxHealth, ammo, entry.defeated()));
+                    tool, live != null ? (int) Math.ceil(live.getHealth()) : -1, maxHealth, ammo, entry.defeated(),
+                    entry.progress().field()));
         }
         return workers;
     }
@@ -107,9 +108,9 @@ public final class ModNetwork {
     }
 
     /**
-     * Carries out a worker panel button: an order (work, follow, stay), or taking the worker's tool back.
-     * Its owner and the players it's shared with can give orders (Follow follows whoever pressed it);
-     * only its owner can take its tool.
+     * Carries out a worker panel button: an order (work, follow, stay), clearing a farmer's field or starting it
+     * farming again, or taking the worker's tool back. Its owner and the players it's shared with can do all but the
+     * last (Follow follows whoever pressed it); only its owner can take its tool.
      * @return false if the player can't, the worker isn't loaded (too far away), or it has no tool to give back
      */
     public static boolean commandWorker(MinecraftServer server, Player player, UUID workerId, WorkerCommandPayload.Command command) {
@@ -123,6 +124,16 @@ public final class ModNetwork {
             case WORK -> worker.setOrder(WorkerEntity.Order.WORK);
             case FOLLOW -> worker.setOrder(WorkerEntity.Order.FOLLOW, player.getUUID());
             case STAY -> worker.setOrder(WorkerEntity.Order.STAY);
+            case CLEAR_FIELD -> {
+                if (!worker.clearField()) {
+                    return false;
+                }
+            }
+            case START_FARMING -> {
+                if (!worker.startFarming()) {
+                    return false;
+                }
+            }
             case TAKE_TOOL -> {
                 if (!entry.owner().equals(player.getUUID()) || !worker.getJob().hasTool()) {
                     return false;

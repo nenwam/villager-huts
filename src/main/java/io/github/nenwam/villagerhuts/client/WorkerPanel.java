@@ -1,5 +1,6 @@
 package io.github.nenwam.villagerhuts.client;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
@@ -66,10 +67,11 @@ public final class WorkerPanel {
     private static boolean sharingPage;     // showing the selected worker's sharing page instead of its details
     private static @Nullable UUID renaming; // worker whose name is being typed, or null
     private static @Nullable Boolean fighterButtons; // whether the order and tool buttons are set up for a fighter
+    private static @Nullable String fieldButton;     // which way the field button is set up (the field it was set for)
     private static @Nullable Widgets current;
 
     private record Widgets(InventoryScreen screen, WorkerList list, Button showAll, WorkerDetails details, Button back,
-                           Button rename, EditBox nameBox, Button detailToggle, List<Button> orders, Button takeTool,
+                           Button rename, EditBox nameBox, Button detailToggle, List<Button> orders, Button field, Button takeTool,
                            Button sharing, WorkerSharing sharingList, PanelArea area) {}
 
     /** Opens a worker's details page (from its book button). */
@@ -130,6 +132,14 @@ public final class WorkerPanel {
                 orderButton(Items.WHEAT, "gui.villagerhuts.panel.order_work", WorkerEntity.Order.WORK),
                 orderButton(Items.LEAD, "gui.villagerhuts.panel.order_follow", WorkerEntity.Order.FOLLOW),
                 orderButton(Items.ARMOR_STAND, "gui.villagerhuts.panel.order_stay", WorkerEntity.Order.STAY));
+        // A farmer's field: clear it (everything planted, into the chest), or start farming it again once it's cleared.
+        Button field = new SlotButton(new ItemStack(Items.CHEST), Component.translatable("gui.villagerhuts.panel.clear_field"), button -> {
+            WorkerInfo info = current != null ? current.details().info() : null;
+            if (info != null) {
+                ClientWorkers.command(info.id(), info.field().equals("farming")
+                        ? WorkerCommandPayload.Command.CLEAR_FIELD : WorkerCommandPayload.Command.START_FARMING);
+            }
+        });
         Button takeTool = new SlotButton(new ItemStack(Items.IRON_HOE), Component.translatable("gui.villagerhuts.panel.take_tool"),
                 button -> { if (selected != null) ClientWorkers.command(selected, WorkerCommandPayload.Command.TAKE_TOOL); });
         Button sharing = new SlotButton(new ItemStack(Items.PLAYER_HEAD), Component.translatable("gui.villagerhuts.panel.sharing"),
@@ -144,15 +154,17 @@ public final class WorkerPanel {
         event.addListener(nameBox);
         event.addListener(detailToggle);
         orders.forEach(event::addListener);
+        event.addListener(field);
         event.addListener(takeTool);
         event.addListener(sharing);
         event.addListener(sharingList);
         event.addListener(area); // last: only gets clicks the list and buttons didn't use
-        Widgets widgets = new Widgets(screen, list, showAll, details, back, rename, nameBox, detailToggle, orders, takeTool,
+        Widgets widgets = new Widgets(screen, list, showAll, details, back, rename, nameBox, detailToggle, orders, field, takeTool,
                 sharing, sharingList, area);
         current = widgets;
         renaming = null;
         fighterButtons = null;
+        fieldButton = null;
         layout(widgets);
         list.setWorkers(ClientWorkers.workers());
         ClientWorkers.setListener(() -> {
@@ -227,6 +239,7 @@ public final class WorkerPanel {
             widgets.nameBox().mouseReleased(mouse);
             widgets.detailToggle().mouseReleased(mouse);
             widgets.orders().forEach(button -> button.mouseReleased(mouse));
+            widgets.field().mouseReleased(mouse);
             widgets.takeTool().mouseReleased(mouse);
             widgets.sharing().mouseReleased(mouse);
             widgets.sharingList().mouseReleased(mouse);
@@ -315,8 +328,6 @@ public final class WorkerPanel {
         for (int i = 0; i < widgets.orders().size(); i++) {
             widgets.orders().get(i).setPosition(x + PADDING + 21 + i * 20, top + HEADER);
         }
-        widgets.takeTool().setPosition(x + width - PADDING - 18, top + HEADER);
-        widgets.sharing().setPosition(x + width - PADDING - 38, top + HEADER);
         int nameX = widgets.back().getRight() + 3;
         widgets.nameBox().setRectangle(Math.max(0, widgets.rename().getX() - 3 - nameX), 14, nameX, top + 6);
 
@@ -352,7 +363,10 @@ public final class WorkerPanel {
         }
         widgets.takeTool().visible = detailsPage && shown != null && shown.yours() && WorkerJob.byId(shown.job()).hasTool();
         widgets.takeTool().active = nearby;
+        widgets.field().visible = detailsPage && shown != null && shown.job().equals(WorkerJob.FARMER.id()) && shown.farm().isPresent();
+        widgets.field().active = nearby;
         widgets.sharing().visible = detailsPage;
+        placeRightButtons(widgets, x, width, top);
         widgets.sharingList().visible = sharingShown;
         if (sharingShown) {
             widgets.sharingList().refresh(shown);
@@ -360,8 +374,34 @@ public final class WorkerPanel {
         widgets.area().visible = open;
     }
 
+    // The details page's buttons on the right (field, sharing, tool): beside the orders if there's room, or on a row
+    // of their own under them in a narrow panel. The facts start below whichever row is lower.
+    private static void placeRightButtons(Widgets widgets, int x, int width, int top) {
+        List<Button> right = new ArrayList<>();
+        for (Button button : List.of(widgets.field(), widgets.sharing(), widgets.takeTool())) {
+            if (button.visible) {
+                right.add(button);
+            }
+        }
+        int ordersRight = x + PADDING + 21 + widgets.orders().size() * 20;
+        boolean fits = x + width - PADDING - right.size() * 20 >= ordersRight;
+        int rowY = fits ? top + HEADER : top + HEADER + 20;
+        int rightEdge = x + width - PADDING + 2;
+        for (int i = 0; i < right.size(); i++) {
+            right.get(right.size() - 1 - i).setPosition(rightEdge - 20 * (i + 1), rowY);
+        }
+        widgets.details().setFactsTop(fits || right.isEmpty() ? 23 : 43);
+    }
+
     // Farmers and fighters word their Work order differently, and the tool button shows the worker's own tool.
+    // A farmer's field button clears the field, or, once it's cleared (or being cleared), starts it farming again.
     private static void setUpButtons(Widgets widgets, WorkerInfo shown) {
+        if (!shown.field().equals(fieldButton) && widgets.field() instanceof SlotButton field) {
+            fieldButton = shown.field();
+            boolean farming = shown.field().equals("farming");
+            field.setIcon(new ItemStack(farming ? Items.CHEST : Items.WHEAT_SEEDS));
+            setHint(field, Component.translatable(farming ? "gui.villagerhuts.panel.clear_field" : "gui.villagerhuts.panel.start_farming"));
+        }
         boolean fighter = WorkerJob.byId(shown.job()).isFighter();
         if (widgets.takeTool() instanceof SlotButton takeTool) {
             takeTool.setIcon(shown.tool().isEmpty() ? new ItemStack(Items.IRON_HOE) : shown.tool());

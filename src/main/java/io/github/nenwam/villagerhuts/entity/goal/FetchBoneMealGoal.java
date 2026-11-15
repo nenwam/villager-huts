@@ -26,6 +26,7 @@ public class FetchBoneMealGoal extends StorageTripGoal {
     protected boolean needsTrip() {
         return this.worker.getJob() == WorkerJob.FARMER
                 && !this.worker.isDoneForToday()
+                && !this.worker.isFieldPaused()
                 && this.worker.getGrowingCrops() > 0
                 && !this.worker.hasBoneMeal()
                 && this.worker.hasFreeSlot();

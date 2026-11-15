@@ -17,16 +17,18 @@ import net.minecraft.world.phys.Vec3;
 /**
  * Ranger: shoot its target from a distance. It closes in until it's within range and can see it, backs off if the
  * target gets too close, and shoots as often as its weapon and level allow (WorkerEntity.rangedInterval):
- *  - a bow (or any other ranged weapon that isn't a crossbow or a trident) draws and shoots an arrow from its pockets;
+ *  - a bow (or any other ranged weapon that isn't a crossbow or a trident) is drawn, then shoots an arrow from its pockets;
  *  - a crossbow is loaded first (taking as long as it does for you; Quick Charge helps), then fired, so
  *    Multishot and Piercing work, and it can fire fireworks;
- *  - a trident is thrown (a copy of it: the ranger keeps its own), so it needs no ammo.
+ *  - a trident is raised and thrown (a copy of it: the ranger keeps its own), so it needs no ammo.
+ * Drawing and raising use the weapon the way you do, so it looks the part (the bow bends, the trident turns).
  * Out of ammo, it stops (FetchAmmoGoal gets more from its chest).
  */
 public class RangerAttackGoal extends Goal implements DescribesActivity {
     private static final double TOO_CLOSE = 4.0;
     private static final int AIM_TICKS = 10;       // sees the target this long before the first shot
     private static final int CROSSBOW_DELAY = 10;  // loaded: a moment to aim before firing
+    private static final int DRAW_TICKS = 20;      // a bow drawn this long shoots at full power (and a trident's raised)
 
     private final WorkerEntity worker;
     private final double speed;
@@ -116,9 +118,26 @@ public class RangerAttackGoal extends Goal implements DescribesActivity {
         ItemStack weapon = this.worker.getMainHandItem();
         if (Weapons.isCrossbow(weapon)) {
             this.crossbow(target, weapon, inRange);
-        } else if (--this.cooldown <= 0 && inRange && this.seeTime >= AIM_TICKS / 2) {
+        } else {
+            this.drawAndShoot(target, Weapons.isThrown(weapon), inRange);
+        }
+    }
+
+    // Draw the bow (or raise the trident) while it has a clear shot; once it's drawn and the wait between shots is
+    // over, shoot. A bow is drawn again for each arrow; a trident stays raised.
+    private void drawAndShoot(LivingEntity target, boolean thrown, boolean inRange) {
+        boolean aiming = inRange && this.seeTime >= AIM_TICKS / 2;
+        if (aiming && !this.worker.isUsingItem()) {
+            this.worker.startUsingItem(InteractionHand.MAIN_HAND);
+        } else if (!aiming && !thrown && this.worker.isUsingItem()) {
+            this.worker.stopUsingItem();
+        }
+        if (--this.cooldown <= 0 && aiming && this.worker.getTicksUsingItem() >= DRAW_TICKS) {
             this.worker.performRangedAttack(target, 1.0F);
             this.cooldown = this.worker.rangedInterval();
+            if (!thrown) {
+                this.worker.stopUsingItem();
+            }
         }
     }
 

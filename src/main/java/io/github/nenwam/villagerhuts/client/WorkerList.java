@@ -19,12 +19,13 @@ import net.minecraft.resources.Identifier;
 import net.minecraft.util.FormattedCharSequence;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
+import org.jspecify.annotations.Nullable;
 
 /**
  * The scrolling list of workers inside the worker panel (see WorkerPanel), drawn in the
  * inventory's style: each worker is a colored slot with its job tool and number, its name, a book
  * button that opens its details page and an eye toggle for its farm and chest highlight; under those, its
- * status (up to two lines) and a row of item slots for what it collected.
+ * status (up to two lines), a ranger's ammo, and a row of item slots for what it collected.
  */
 class WorkerList extends PanelList<WorkerList.Row> {
     // Row heights include 2px of list padding above and below, plus a little space between workers.
@@ -40,7 +41,7 @@ class WorkerList extends PanelList<WorkerList.Row> {
         this.clearEntries();
         for (WorkerInfo info : workers) {
             Row row = new Row(info, this.minecraft.font.split(info.status(), this.getRowWidth() - 2 * Entry.CONTENT_PADDING));
-            this.addEntry(row, rowHeight(row.status.size(), !row.collected.isEmpty()));
+            this.addEntry(row, rowHeight(row.status.size() + (row.ammo != null ? 1 : 0), !row.collected.isEmpty()));
         }
         this.setScrollAmount(scroll);
     }
@@ -58,11 +59,13 @@ class WorkerList extends PanelList<WorkerList.Row> {
         private final SlotButton infoButton;
         private final ItemStack jobIcon;
         private final List<FormattedCharSequence> status;
+        private final @Nullable Component ammo; // a ranger's ammo
         private final List<Map.Entry<ItemStack, Integer>> collected = new ArrayList<>();
 
         Row(WorkerInfo info, List<FormattedCharSequence> status) {
             this.info = info;
             this.status = status.size() > STATUS_LINES ? status.subList(0, STATUS_LINES) : status;
+            this.ammo = info.ammo() >= 0 ? Component.translatable("gui.villagerhuts.panel.ammo", info.ammo()) : null;
             this.areaToggle = new SlotToggle(button -> ClientWorkers.toggleHighlight(info.id()),
                     () -> ClientWorkers.isShown(info.id()), () -> ClientWorkers.color(info.number()),
                     Component.translatable("gui.villagerhuts.panel.show"), Component.translatable("gui.villagerhuts.panel.hide"));
@@ -103,6 +106,10 @@ class WorkerList extends PanelList<WorkerList.Row> {
             int lineY = y + 20;
             for (FormattedCharSequence line : this.status) {
                 NativeStyle.text(graphics, font, line, x, lineY, this.info.loaded() ? NativeStyle.LABEL : NativeStyle.LABEL_SOFT);
+                lineY += NativeStyle.LINE;
+            }
+            if (this.ammo != null) {
+                NativeStyle.text(graphics, font, fit(font, this.ammo, right - x), x, lineY, NativeStyle.LABEL);
                 lineY += NativeStyle.LINE;
             }
 

@@ -64,10 +64,14 @@ Requires JDK 25.
     Workers that are far away take the new name when they're next loaded;
   - beside its slot, its orders: **Work** (wheat; for a fighter, a shield: guard its post), **Follow me** (lead) and
     **Stay here** (armor stand); the one it's on is in its color. Giving it a farm, post or chest also sets it working;
+  - for a farmer, the **chest** clears its field: it pulls up everything planted (ripe or not) and puts it all in its
+    chest, seeds, harvest and bone meal, then waits by its bed. The **seeds** button (in its place while it's cleared)
+    starts it farming again with what's in the chest. Clearing doesn't count toward the day's harvest;
   - on the right, its **tool** takes it back (a farmer is unemployed until you right-click it with a hoe, a fighter
     unarmed until you hand it a weapon);
   - the **player head** opens its sharing page (below).
-  The orders and the tool button only work while the worker is near enough to be loaded.
+  The orders, field and tool buttons only work while the worker is near enough to be loaded. In a narrow panel the
+  buttons on the right move to a row of their own. A ranger's ammo shows in the list, and near the top of its page.
 - **Multiplayer:** a worker belongs to the player who hired it. Nobody else can give it orders or work, rename
   it, use a lead or name tag on it, or hurt it (the `protectWorkers` setting; turn it off for PvP). On its sharing
   page its owner can **share** it with players who are online (**+**), **stop sharing** (**×**), or **give it**
@@ -84,7 +88,8 @@ Requires JDK 25.
     (anything that shoots, and anything tagged `c:tools/melee_weapon` or `c:tools/ranged_weapon`; the
     `villagerhuts:warrior_weapons` and `ranger_weapons` tags add more). Their owner can hand them a different
     weapon to swap (getting the old one back); the panel's weapon button takes it back. Weapons never wear out
-    in their hands, and their enchantments work.
+    in their hands, and their enchantments work. Armed, they unfold their arms and hold the weapon in their hand:
+    swinging a blade, drawing a bow, loading and aiming a crossbow, raising a trident to throw.
   - **A post:** right-click your fighter, then any block that isn't a chest or a bed: they guard it, fighting
     monsters within 12 blocks (the `fighterGuardRadius` setting; the preview shows the area in red-orange).
     Following you, they're your bodyguard: they fight what comes near you. Told to stay, they guard that spot.
@@ -120,7 +125,7 @@ and chest (and refusing spots with no farmland or too far away), new farms plann
 fetched and planted exactly, bone meal used, harvests stored, leftovers put away once work is done, pitcher pods
 ignored, the chest broken (with full pockets, and mid-trip) and a new one assigned, the farm fenced off, the chest
 walled in, staying put, a worker dying, workers renamed and the hoe taken back from the panel, zombies hunting
-workers, looks and names, sharing (and giving away) a worker, strangers kept from using or hurting it, upgrades
+workers, looks and names, clearing a field and starting it again, sharing (and giving away) a worker, strangers kept from using or hurting it, upgrades
 (and the recipes for diamond carrots, the Farmer and the Fighter), fighters (Sikh looks and names, every weapon in
 the game sorted into melee and ranged, swapping weapons, warriors defending their post, rangers shooting bows,
 crossbows and tridents and fetching arrows, eating to heal, leaving friends alone and creepers to rangers,

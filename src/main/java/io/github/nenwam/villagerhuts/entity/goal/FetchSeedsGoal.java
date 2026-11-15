@@ -27,6 +27,7 @@ public class FetchSeedsGoal extends StorageTripGoal {
     protected boolean needsTrip() {
         return this.worker.getJob() == WorkerJob.FARMER
                 && !this.worker.isDoneForToday()
+                && !this.worker.isFieldPaused()
                 && !this.worker.hasSeeds()
                 && this.worker.getEmptyFarmland() > 0
                 && this.worker.getRipeCrops() == 0; // harvesting first gives seeds anyway

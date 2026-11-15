@@ -148,6 +148,7 @@ public final class VillagerHutsTests {
             new Test("done_for_the_day_rests_by_its_bed", 1200, VillagerHutsTests::doneForTheDayRestsByItsBed),
             new Test("worker_panel_messages_survive_the_network", 40, VillagerHutsTests::workerPanelMessagesSurviveTheNetwork),
             new Test("farmer_sleeps_in_its_bed_at_night", 800, VillagerHutsTests::farmerSleepsInItsBedAtNight, When.NIGHT),
+            new Test("clearing_the_field_and_starting_again", 4000, VillagerHutsTests::clearingTheFieldAndStartingAgain),
             new Test("fighter_item_hires_an_unarmed_sikh_fighter", 40, VillagerHutsTests::fighterItemHiresAnUnarmedSikhFighter),
             new Test("weapons_make_warriors_and_rangers", 40, VillagerHutsTests::weaponsMakeWarriorsAndRangers),
             new Test("warrior_defends_its_post", 600, VillagerHutsTests::warriorDefendsItsPost),
@@ -847,6 +848,54 @@ public final class VillagerHutsTests {
     // ================================================================ helpers
 
     /** A red bed at BED_FOOT / BED_HEAD. */
+    /**
+     * From the panel: clearing the field pulls up every crop, ripe or not, and puts it all in the chest; then the farmer
+     * waits (planting nothing) until it's told to start farming again, when it fetches seeds from the chest and plants.
+     */
+    private static void clearingTheFieldAndStartingAgain(GameTestHelper helper) {
+        Player owner = helper.makeMockPlayer(GameType.SURVIVAL);
+        WorkerEntity worker = hireFarmer(helper, owner);
+        MinecraftServer server = helper.getLevel().getServer();
+        WorkerRoster.get(server).update(worker);
+        int young = 0;
+        for (int x = FARM_MIN_X; x <= FARM_MAX_X; x++) {
+            for (int z = FARM_MIN_Z; z <= FARM_MAX_Z; z++) {
+                BlockPos pos = new BlockPos(x, 1, z);
+                if (helper.getBlockState(pos.below()).is(Blocks.FARMLAND)) {
+                    boolean ripe = (x + z) % 4 == 0;
+                    helper.setBlock(pos, Blocks.WHEAT.defaultBlockState().setValue(CropBlock.AGE, ripe ? 7 : 1));
+                    young += ripe ? 0 : 1;
+                }
+            }
+        }
+        int planted = countCrops(helper);
+        int youngCrops = young;
+        worker.getInventory().addItem(new ItemStack(Items.BONE_MEAL, 5));
+        Container chest = container(helper, CHEST);
+        helper.assertTrue(ModNetwork.commandWorker(server, owner, worker.getUUID(), WorkerCommandPayload.Command.CLEAR_FIELD),
+                "couldn't clear the field");
+        helper.startSequence()
+                .thenWaitUntil(() -> {
+                    helper.assertTrue(worker.getField() == WorkerEntity.Field.CLEARED,
+                            countCrops(helper) + " crops left, " + worker.getCarriedCount() + " items carried, field " + worker.getField());
+                    assertStatus(helper, worker, "activity.villagerhuts.field_cleared");
+                })
+                .thenExecute(() -> {
+                    helper.assertTrue(countCrops(helper) == 0, "crops left after clearing");
+                    helper.assertTrue(count(chest, Items.WHEAT_SEEDS) >= youngCrops, "only " + count(chest, Items.WHEAT_SEEDS) + " seeds in the chest");
+                    helper.assertTrue(count(chest, Items.WHEAT) > 0 && count(chest, Items.BONE_MEAL) == 5, "harvest or bone meal not in the chest");
+                    helper.assertTrue(worker.getInventory().isEmpty(), "kept something in its pockets");
+                })
+                .thenIdle(200)
+                .thenExecute(() -> {
+                    helper.assertTrue(countCrops(helper) == 0, "replanted before it was told to");
+                    helper.assertTrue(ModNetwork.commandWorker(server, owner, worker.getUUID(), WorkerCommandPayload.Command.START_FARMING),
+                            "couldn't start farming again");
+                })
+                .thenWaitUntil(() -> helper.assertTrue(countCrops(helper) == planted, countCrops(helper) + " of " + planted + " replanted"))
+                .thenSucceed();
+    }
+
     // ================================================================ fighters
 
     /** The Fighter item hires an unarmed fighter: a Sikh warrior with a Singh or Kaur name, owned by the player, following them. */
@@ -988,7 +1037,10 @@ public final class VillagerHutsTests {
                 .thenSucceed();
     }
 
-    /** A ranger with no arrows says so, then fetches arrows from its chest (and won't take the chest's food unless hurt). */
+    /**
+     * A ranger with no arrows says so. Handed some, it takes them, and fetches more from its chest (but not the chest's
+     * food: it isn't hurt). The worker panel shows how many it has.
+     */
     private static void rangerFetchesArrowsFromItsChest(GameTestHelper helper) {
         Player owner = helper.makeMockPlayer(GameType.SURVIVAL);
         WorkerEntity ranger = hireFighter(helper, owner, new ItemStack(Items.CROSSBOW));
@@ -996,13 +1048,23 @@ public final class VillagerHutsTests {
         helper.setBlock(SPARE_CHEST_SPOT, Blocks.CHEST);
         assertOutcome(helper, assign(helper, ranger, SPARE_CHEST_SPOT), true, "message.villagerhuts.fighter_chest_assigned");
         assertStatus(helper, ranger, "activity.villagerhuts.out_of_ammo");
+        give(ranger, owner, new ItemStack(Items.ARROW, 8));
+        helper.assertTrue(ranger.getAmmoCount() == 8 && owner.getMainHandItem().isEmpty(), "didn't take the arrows handed to it");
+        assertPanelAmmo(helper, owner, ranger, 8);
         Container chest = container(helper, SPARE_CHEST_SPOT);
         chest.setItem(0, new ItemStack(Items.BREAD, 4));
         chest.setItem(1, new ItemStack(Items.ARROW, 40));
         helper.succeedWhen(() -> {
-            helper.assertTrue(ranger.getAmmoCount() == 40 && count(chest, Items.ARROW) == 0, "has " + ranger.getAmmoCount() + " arrows");
+            helper.assertTrue(ranger.getAmmoCount() == 48 && count(chest, Items.ARROW) == 0, "has " + ranger.getAmmoCount() + " arrows");
             helper.assertTrue(count(chest, Items.BREAD) == 4, "took food it didn't need");
+            assertPanelAmmo(helper, owner, ranger, 48);
         });
+    }
+
+    private static void assertPanelAmmo(GameTestHelper helper, Player owner, WorkerEntity ranger, int expected) {
+        WorkerInfo info = ModNetwork.workerList(helper.getLevel().getServer(), owner.getUUID()).stream()
+                .filter(worker -> worker.id().equals(ranger.getUUID())).findFirst().orElse(null);
+        helper.assertTrue(info != null && info.ammo() == expected, "the panel shows " + (info == null ? "no ranger" : info.ammo() + " arrows"));
     }
 
     /** A hurt fighter fetches food from its chest (not rotten flesh) and eats it to heal. */

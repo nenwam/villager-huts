@@ -19,6 +19,7 @@ import net.minecraft.world.level.block.entity.HopperBlockEntity;
  *    in the chest that would change that; or it's done for the day): put everything away, seeds and bone meal too.
  *  - Fighters store their loot once the fighting's over (or their pockets are full), always keeping their ammo
  *    and some food.
+ *  - Clearing its field (WorkerEntity.clearField): everything goes in the chest, seeds and bone meal included.
  */
 public class DepositItemsGoal extends StorageTripGoal {
     private static final int KEEP_SEEDS = 16;         // of each kind of seed
@@ -110,7 +111,7 @@ public class DepositItemsGoal extends StorageTripGoal {
             }
             return Weapons.isPlainFood(stack) ? stack.getCount() - keep(stack, kept, KEEP_FOOD) : stack.getCount();
         }
-        if (everything) {
+        if (everything || this.worker.isFieldPaused()) {
             return stack.getCount();
         }
         if (WorkerEntity.isBoneMeal(stack)) {

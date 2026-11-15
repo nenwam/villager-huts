@@ -194,5 +194,11 @@
   "message.villagerhuts.post_too_far": "Too far from the worker (max %s blocks)",
   "message.villagerhuts.post_assigned": "Post assigned: guarding %s×%s around it",
   "message.villagerhuts.fighter_chest_assigned": "Chest assigned: its loot goes here, and it takes arrows and food from here",
-  "villagerhuts.configuration.fighterGuardRadius": "Fighter Guard Radius (blocks)"
+  "villagerhuts.configuration.fighterGuardRadius": "Fighter Guard Radius (blocks)",
+  "gui.villagerhuts.panel.ammo": "Ammo: %s",
+  "gui.villagerhuts.panel.clear_field": "Clear the field: pull up everything planted and put it in the chest, then wait",
+  "gui.villagerhuts.panel.start_farming": "Start farming again, with the seeds in the chest",
+  "activity.villagerhuts.clearing_field": "Clearing the field: pulling everything up for the chest",
+  "activity.villagerhuts.pulling_up": "Clearing the field: pulling up %s",
+  "activity.villagerhuts.field_cleared": "Field cleared: waiting for you to start farming again"
 }

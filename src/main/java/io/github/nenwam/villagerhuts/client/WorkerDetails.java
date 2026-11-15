@@ -36,9 +36,9 @@ import org.jspecify.annotations.Nullable;
 final class WorkerDetails extends AbstractWidget {
     private static final int LINE = NativeStyle.LINE;
     private static final int SCROLL_STEP = 10;
-    private static final int FACTS_TOP = 23; // below the worker's slot and its buttons, which don't scroll
 
     private @Nullable UUID worker;
+    private int factsTop = 23; // below the worker's slot and its buttons (one row of them, or two), which don't scroll
     private double scroll;
     private int contentHeight;
 
@@ -65,12 +65,17 @@ final class WorkerDetails extends AbstractWidget {
         return null;
     }
 
+    /** Where the facts start, below the buttons (WorkerPanel puts them on two rows in a narrow panel). */
+    void setFactsTop(int factsTop) {
+        this.factsTop = factsTop;
+    }
+
     void scrollBy(double notches) {
         this.scroll = Mth.clamp(this.scroll - notches * SCROLL_STEP, 0, this.maxScroll());
     }
 
     private int maxScroll() {
-        return Math.max(0, this.contentHeight - (this.getHeight() - FACTS_TOP));
+        return Math.max(0, this.contentHeight - (this.getHeight() - this.factsTop));
     }
 
     /** What to show in its slot: its tool or weapon, or, with none, the item that hires its kind of worker. */
@@ -116,7 +121,7 @@ final class WorkerDetails extends AbstractWidget {
         graphics.itemDecorations(font, icon, x + 1, top + 1, String.valueOf(info.number()));
 
         // Everything under it scrolls.
-        int factsTop = top + FACTS_TOP;
+        int factsTop = top + this.factsTop;
         boolean mouseInside = mouseX >= x && mouseX < this.getRight() && mouseY >= factsTop && mouseY < bottom;
         this.scroll = Mth.clamp(this.scroll, 0, this.maxScroll());
         graphics.enableScissor(x, factsTop, this.getRight(), bottom);
@@ -186,6 +191,16 @@ final class WorkerDetails extends AbstractWidget {
         List<Component> lines = new ArrayList<>();
         lines.add(fact("status", info.status()));
         if (job.isFighter()) {
+            // What it fights with first: these change the most, and the page may need scrolling for the rest.
+            lines.add(fact("weapon", info.tool().isEmpty() ? Component.translatable("gui.villagerhuts.details.weapon_none")
+                    : info.tool().getHoverName()));
+            if (info.ammo() >= 0) {
+                lines.add(fact("ammo", Component.translatable(info.ammo() > 0 ? "gui.villagerhuts.details.ammo_value"
+                        : "gui.villagerhuts.details.ammo_none", info.ammo())));
+            }
+            lines.add(fact("health", info.health() >= 0
+                    ? Component.translatable("gui.villagerhuts.details.health_value", info.health(), info.maxHealth())
+                    : Component.translatable("gui.villagerhuts.details.unknown_far_away")));
             lines.add(fact("level", Component.translatable("gui.villagerhuts.details.level_fighter", WorkerEntity.rankName(info.rank()),
                     WorkerEntity.fighterHealth(info.rank()), WorkerEntity.fighterDamageBonus(info.rank()))));
         } else {
@@ -210,15 +225,6 @@ final class WorkerDetails extends AbstractWidget {
         lines.add(fact("bed", info.bed().map(WorkerDetails::position)
                 .orElseGet(() -> Component.translatable("gui.villagerhuts.details.bed_none"))));
         if (job.isFighter()) {
-            lines.add(fact("weapon", info.tool().isEmpty() ? Component.translatable("gui.villagerhuts.details.weapon_none")
-                    : info.tool().getHoverName()));
-            if (info.ammo() >= 0) {
-                lines.add(fact("ammo", Component.translatable(info.ammo() > 0 ? "gui.villagerhuts.details.ammo_value"
-                        : "gui.villagerhuts.details.ammo_none", info.ammo())));
-            }
-            lines.add(fact("health", info.health() >= 0
-                    ? Component.translatable("gui.villagerhuts.details.health_value", info.health(), info.maxHealth())
-                    : Component.translatable("gui.villagerhuts.details.unknown_far_away")));
             int defeated = info.defeated().values().stream().mapToInt(Integer::intValue).sum();
             lines.add(fact("defeated_total", Component.translatable("gui.villagerhuts.details.defeated_value", defeated)));
         }

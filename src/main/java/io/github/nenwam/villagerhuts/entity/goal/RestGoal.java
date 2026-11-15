@@ -11,8 +11,8 @@ import net.minecraft.world.phys.Vec3;
 import org.jspecify.annotations.Nullable;
 
 /**
- * Done for the day (it's harvested its daily limit): stay around its bed until the next morning, taking a few
- * steps now and then. At night ShelterAtNightGoal puts it to bed. With no bed, it stays by its chest instead.
+ * Done for the day (it's harvested its daily limit), or its field cleared from the worker panel: stay around its bed
+ * (until the next morning, or until it's told to start farming again), taking a few steps now and then. At night ShelterAtNightGoal puts it to bed. With no bed, it stays by its chest instead.
  * (DepositItemsGoal comes first, so it puts everything away before it rests.)
  */
 public class RestGoal extends Goal implements DescribesActivity {
@@ -34,8 +34,10 @@ public class RestGoal extends Goal implements DescribesActivity {
 
     @Override
     public boolean canUse() {
+        WorkerEntity.Field field = this.worker.getField();
         return this.worker.getOrder() == WorkerEntity.Order.WORK && this.worker.getJob() == WorkerJob.FARMER
-                && this.worker.isDoneForToday() && this.restSpot() != null;
+                && (field == WorkerEntity.Field.CLEARED || (this.worker.isDoneForToday() && field == WorkerEntity.Field.FARMING))
+                && this.restSpot() != null;
     }
 
     @Override
@@ -61,6 +63,9 @@ public class RestGoal extends Goal implements DescribesActivity {
 
     @Override
     public Component describeActivity() {
+        if (this.worker.getField() == WorkerEntity.Field.CLEARED) {
+            return Component.translatable("activity.villagerhuts.field_cleared");
+        }
         String key = this.near ? "activity.villagerhuts.resting" : "activity.villagerhuts.going_to_rest";
         return Component.translatable(key, this.worker.getHarvestedToday(), this.worker.getDailyLimit());
     }

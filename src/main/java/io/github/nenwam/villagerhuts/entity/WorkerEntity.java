@@ -212,9 +212,38 @@ public class WorkerEntity extends PathfinderMob implements InventoryCarrier, Cro
     private boolean farmWorkStuck;
     private StorageState storageState = StorageState.OK;
     private boolean farmUnreachable;
+    private Field field = Field.FARMING;
+    private boolean cropsGone; // clearing: nothing planted left on the farm (as of the last look)
 
     /** What the last trip to its chest found. */
     public enum StorageState { OK, NONE, UNREACHABLE }
+
+    /**
+     * A farmer's field, from the worker panel: farmed as usual, being cleared (everything planted is pulled up and put
+     * in the chest), or cleared (it waits, planting nothing, until it's told to start farming again).
+     */
+    public enum Field {
+        FARMING("farming"), CLEARING("clearing"), CLEARED("cleared");
+
+        private final String id;
+
+        Field(String id) {
+            this.id = id;
+        }
+
+        public String id() {
+            return this.id;
+        }
+
+        public static Field byId(String id) {
+            for (Field field : values()) {
+                if (field.id.equals(id)) {
+                    return field;
+                }
+            }
+            return FARMING;
+        }
+    }
 
     /** What it's been told to do, from the worker panel. */
     public enum Order {
@@ -456,6 +485,7 @@ public class WorkerEntity extends PathfinderMob implements InventoryCarrier, Cro
     /** An existing farm to work. Giving a worker work also sets it working, if it was following or staying. */
     public void assignFarm(BoundingBox area) {
         this.farmArea = area;
+        this.field = Field.FARMING;
         this.tillsLand = false;
         this.plannedWater.clear();
         this.setOrder(Order.WORK);
@@ -464,6 +494,7 @@ public class WorkerEntity extends PathfinderMob implements InventoryCarrier, Cro
     /** A new farm to make (see FarmPlan): it tills the land in the area and puts water where it's planned. */
     public void createFarm(BoundingBox area, List<BlockPos> water) {
         this.farmArea = area;
+        this.field = Field.FARMING;
         this.tillsLand = true;
         this.plannedWater.clear();
         this.plannedWater.addAll(water);
@@ -1247,6 +1278,9 @@ public class WorkerEntity extends PathfinderMob implements InventoryCarrier, Cro
      * the day), and it's had nothing to do for a few seconds. Then it puts everything it carries away in its chest.
      */
     public boolean isWorkDone() {
+        if (this.field == Field.CLEARING) {
+            return this.cropsGone && this.isIdle(); // all pulled up: put it all away
+        }
         if (this.getJob().isFighter()) {
             return this.getTarget() == null && this.isIdle(); // the fight's over: put the loot away
         }
@@ -1296,6 +1330,51 @@ public class WorkerEntity extends PathfinderMob implements InventoryCarrier, Cro
         this.farmUnreachable = unreachable;
     }
 
+    public Field getField() {
+        return this.field;
+    }
+
+    /** Clearing or cleared: it doesn't plant (or fetch seeds or bone meal) until it's told to start farming again. */
+    public boolean isFieldPaused() {
+        return this.field != Field.FARMING;
+    }
+
+    /**
+     * From the worker panel: pull up everything planted on the farm (ripe or not) and put it all in the chest, then
+     * wait. It works on it now, if it was following or staying. Returns false if it has no farm.
+     */
+    public boolean clearField() {
+        if (this.getJob() != WorkerJob.FARMER || this.farmArea == null) {
+            return false;
+        }
+        this.field = Field.CLEARING;
+        this.cropsGone = false;
+        this.setOrder(Order.WORK);
+        return true;
+    }
+
+    /** From the worker panel: back to farming as usual, with the seeds in the chest. */
+    public boolean startFarming() {
+        if (this.getJob() != WorkerJob.FARMER || this.field == Field.FARMING) {
+            return false;
+        }
+        this.field = Field.FARMING;
+        this.setOrder(Order.WORK);
+        return true;
+    }
+
+    /** Set by the farming goal while clearing: whether anything planted is left on the farm. */
+    public void setCropsGone(boolean gone) {
+        this.cropsGone = gone;
+    }
+
+    // Clearing: once nothing planted is left and its pockets are empty (all in the chest), the field is cleared.
+    private void finishClearingIfDone() {
+        if (this.field == Field.CLEARING && this.cropsGone && this.inventory.isEmpty()) {
+            this.field = Field.CLEARED;
+        }
+    }
+
     public boolean hasSeeds() {
         for (ItemStack stack : this.inventory.getItems()) {
             if (isPlantableSeed(stack)) {
@@ -1340,6 +1419,18 @@ public class WorkerEntity extends PathfinderMob implements InventoryCarrier, Cro
         if (this.getJob() == WorkerJob.FIGHTER) {
             return Component.translatable("activity.villagerhuts.unarmed");
         }
+        if (this.field == Field.CLEARED) {
+            return Component.translatable("activity.villagerhuts.field_cleared");
+        }
+        if (this.field == Field.CLEARING) {
+            if (this.cropsGone && !this.inventory.isEmpty() && this.storageState == StorageState.NONE) {
+                return Component.translatable("activity.villagerhuts.no_storage");
+            }
+            if (this.cropsGone && !this.inventory.isEmpty() && this.storageState == StorageState.UNREACHABLE) {
+                return Component.translatable("activity.villagerhuts.storage_unreachable");
+            }
+            return Component.translatable("activity.villagerhuts.clearing_field");
+        }
         if (armed) {
             return Component.translatable(this.guardPost == null ? "activity.villagerhuts.no_post" : "activity.villagerhuts.guarding");
         }
@@ -1382,6 +1473,7 @@ public class WorkerEntity extends PathfinderMob implements InventoryCarrier, Cro
             if (this.getJob().isFighter()) {
                 this.fighterUpkeep();
             }
+            this.finishClearingIfDone();
             if (this.tickCount % 20 == 0) {
                 WorkerRoster.get(level.getServer()).update(this);
             }
@@ -1445,6 +1537,8 @@ public class WorkerEntity extends PathfinderMob implements InventoryCarrier, Cro
         output.store("collected", COLLECTED_CODEC, this.collected);
         output.store("defeated", COLLECTED_CODEC, this.defeated);
         output.storeNullable("guard_post", BlockPos.CODEC, this.guardPost);
+        output.putString("field", this.field.id());
+        output.putBoolean("crops_gone", this.cropsGone);
         output.putLong("employed_ticks", this.employedTicks);
         this.writeInventoryToTag(output);
     }
@@ -1475,6 +1569,8 @@ public class WorkerEntity extends PathfinderMob implements InventoryCarrier, Cro
         this.defeated.clear();
         this.defeated.putAll(input.read("defeated", COLLECTED_CODEC).orElse(Map.of()));
         this.guardPost = input.read("guard_post", BlockPos.CODEC).orElse(null);
+        this.field = Field.byId(input.getStringOr("field", Field.FARMING.id()));
+        this.cropsGone = input.getBooleanOr("crops_gone", false);
         this.employedTicks = input.getLongOr("employed_ticks", 0L);
         this.readInventoryFromTag(input);
         this.applyRankStats();

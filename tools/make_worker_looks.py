@@ -65,6 +65,8 @@ class Texture:
     def __init__(self, seed):
         self.px = [[CLEAR] * SIZE for _ in range(SIZE)]
         self.rng = random.Random(seed)
+        self.arm_skin = None     # set by skin() and sleeves(), for free_arms()
+        self.arm_sleeves = None
 
     def set(self, x, y, color):
         self.px[y][x] = color
@@ -111,6 +113,7 @@ ROBE = box(0, 38, 8, 20, 6)     # over the body, down to the ankles (the "jacket
 ARM = box(44, 22, 4, 8, 4)      # both side arms use it (one mirrored)
 HANDS = box(40, 38, 8, 4, 4)    # the folded hands
 LEG = box(0, 22, 4, 12, 4)      # both legs use it; only the bottom 3 rows show under the robe
+FREE_ARM = box(40, 46, 4, 12, 4)  # warriors' and rangers' unfolded arms (both use it), like an illager's
 
 SIDES = ("right", "front", "left", "back")
 
@@ -118,6 +121,7 @@ SIDES = ("right", "front", "left", "back")
 # ---------------------------------------------------------------- body parts
 
 def skin(t, tone):
+    t.arm_skin = tone  # the free arms are painted last (free_arms), so the rest's shading noise stays as it was
     for part in (HEAD, NOSE, ARM, HANDS, BODY, LEG):
         for rect in part.values():
             t.fill(rect, tone)
@@ -180,7 +184,9 @@ def braid_down_back(t, hair, rows=6):
 
 
 def sleeves(t, cloth, rows, bangles=None, kara=False):
-    """Sleeve cloth down the arms (rows of 8, from the shoulder); hands stay bare."""
+    """Sleeve cloth down the arms (rows of 8, from the shoulder); hands stay bare. The free arms (12 rows, shoulder
+    to fingertips) get the same, scaled: wrist at row 9, the hand below it."""
+    t.arm_sleeves = (cloth, rows, bangles, kara)
     for face_name in SIDES:
         t.fill(ARM[face_name], lambda c, r, w, h: cloth if r < rows else None)
         if bangles and rows < 7:
@@ -188,6 +194,24 @@ def sleeves(t, cloth, rows, bangles=None, kara=False):
         if kara:
             t.fill(ARM[face_name], lambda c, r, w, h: STEEL if r == 7 else None)
     t.fill(ARM["top"], cloth)
+
+
+def free_arms(t):
+    """The unfolded arms (warriors and rangers): skin, and the same sleeves, bangles or kara as the folded ones,
+    scaled to the longer arm (wrist at row 9, the hand below it)."""
+    for rect in FREE_ARM.values():
+        t.fill(rect, t.arm_skin)
+    if t.arm_sleeves is None:
+        return
+    cloth, rows, bangles, kara = t.arm_sleeves
+    free_rows = round(rows * 9 / 7)
+    for face_name in SIDES:
+        t.fill(FREE_ARM[face_name], lambda c, r, w, h: cloth if r < free_rows else None)
+        if bangles and rows < 7:
+            t.fill(FREE_ARM[face_name], lambda c, r, w, h: bangles[c % len(bangles)] if r == 9 else None)
+        if kara:
+            t.fill(FREE_ARM[face_name], lambda c, r, w, h: STEEL if r == 9 else None)
+    t.fill(FREE_ARM["top"], cloth)
 
 
 def feet(t, lower, sandal=rgb("4a2e1c")):
@@ -540,6 +564,7 @@ def main():
         t = Texture(seed)
         SKIN_NOW = next(s for s in SKIN.values() if s is SKIN[TONES[name]])
         draw(t)
+        free_arms(t)
         (folder / f"{name}.png").write_bytes(t.png())
         print(f"wrote {folder / name}.png")
 

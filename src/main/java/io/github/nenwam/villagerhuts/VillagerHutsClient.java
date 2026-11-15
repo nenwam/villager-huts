@@ -1,5 +1,6 @@
 package io.github.nenwam.villagerhuts;
 
+import io.github.nenwam.villagerhuts.client.WorkerModel;
 import io.github.nenwam.villagerhuts.client.WorkerRenderer;
 import io.github.nenwam.villagerhuts.registry.ModEntities;
 import net.neoforged.api.distmarker.Dist;
@@ -25,5 +26,10 @@ public class VillagerHutsClient {
     @SubscribeEvent
     static void registerRenderers(EntityRenderersEvent.RegisterRenderers event) {
         event.registerEntityRenderer(ModEntities.WORKER.get(), WorkerRenderer::new);
+    }
+
+    @SubscribeEvent
+    static void registerModels(EntityRenderersEvent.RegisterLayerDefinitions event) {
+        event.registerLayerDefinition(WorkerModel.LAYER, WorkerModel::createBodyLayer);
     }
 }
