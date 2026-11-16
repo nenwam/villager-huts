@@ -260,6 +260,13 @@ final class WorkerDetails extends AbstractWidget {
         return false;
     }
 
+    // 1.21.1 takes clicks anywhere in a widget's area (not where isMouseOver says), and the page covers its own
+    // buttons (orders, field, sharing, tool), so it must not take them.
+    @Override
+    public boolean mouseClicked(double mouseX, double mouseY, int button) {
+        return false;
+    }
+
     @Override
     protected void updateWidgetNarration(NarrationElementOutput output) {
     }
