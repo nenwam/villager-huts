@@ -18,7 +18,7 @@ import net.neoforged.neoforge.client.gui.IConfigScreenFactory;
 @EventBusSubscriber(modid = VillagerHuts.MODID, value = Dist.CLIENT)
 public class VillagerHutsClient {
     public VillagerHutsClient(ModContainer container) {
-        // In-game settings screen: Mods > Villager Huts > Config.
+        // In-game settings screen: Mods > Sanjay Gupta's Best Workers! > Config.
         // Labels for each setting come from assets/villagerhuts/lang/en_us.json.
         container.registerExtensionPoint(IConfigScreenFactory.class, ConfigurationScreen::new);
     }

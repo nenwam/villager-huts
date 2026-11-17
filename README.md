@@ -1,4 +1,4 @@
-# Villager Huts
+# Sanjay Gupta's Best Workers!
 
 A NeoForge mod for Minecraft 26.3: hire workers, give each one somewhere to work, a chest and a bed, and they get
 on with it. Farmers look after a farm (or make one); fighters, Sikh warriors and rangers, guard a post, or you.
