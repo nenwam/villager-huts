@@ -1,4 +1,4 @@
-# Villager Huts
+# Sanjay Gupta's Best Workers!
 
 A NeoForge mod for Minecraft 1.21.1 (NeoForge 21.1.265, the Seed to Stars modpack's version; the `main` branch is the
 Minecraft 26.3 version): hire workers, give each one somewhere to work, a chest and a bed, and they get
