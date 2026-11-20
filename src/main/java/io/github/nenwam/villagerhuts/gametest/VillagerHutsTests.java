@@ -67,6 +67,7 @@ import net.minecraft.world.Container;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.entity.EntityTypes;
 import net.minecraft.world.entity.EquipmentSlot;
+import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.entity.monster.zombie.Zombie;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.Item;
@@ -90,6 +91,8 @@ import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.Vec3;
 import net.neoforged.bus.api.IEventBus;
+import net.neoforged.neoforge.common.NeoForge;
+import net.neoforged.neoforge.event.level.BlockDropsEvent;
 import net.neoforged.neoforge.event.RegisterGameTestsEvent;
 import net.neoforged.neoforge.gametest.GameTestHooks;
 import net.neoforged.neoforge.registries.DeferredRegister;
@@ -172,6 +175,7 @@ public final class VillagerHutsTests {
             new Test("workers_warn_when_they_cant_breathe", 200, VillagerHutsTests::workersWarnWhenTheyCantBreathe),
             new Test("hiring_and_upgrading_give_advancements", 40, VillagerHutsTests::hiringAndUpgradingGiveAdvancements),
             new Test("any_tagged_storage_works_as_a_chest", 2400, VillagerHutsTests::anyTaggedStorageWorksAsAChest),
+            new Test("harvests_are_announced_like_any_broken_block", 1200, VillagerHutsTests::harvestsAreAnnouncedLikeAnyBrokenBlock),
             new Test("fighter_item_hires_an_unarmed_sikh_fighter", 40, VillagerHutsTests::fighterItemHiresAnUnarmedSikhFighter),
             new Test("weapons_make_warriors_and_rangers", 40, VillagerHutsTests::weaponsMakeWarriorsAndRangers),
             new Test("warrior_defends_its_post", 600, VillagerHutsTests::warriorDefendsItsPost),
@@ -1099,6 +1103,29 @@ public final class VillagerHutsTests {
         helper.succeedWhen(() -> {
             helper.assertTrue(countCrops(helper) == 6, "planted " + countCrops(helper) + " of 6 seeds from the barrel");
             helper.assertTrue(count(barrel, Items.WHEAT_SEEDS) == 0, "seeds left in the barrel");
+        });
+    }
+
+    /**
+     * A farmer's harvest drops the way any broken block's does (NeoForge's BlockDropsEvent), so mods that count
+     * production (the Seed to Stars Colony Ledger) see it; what the event leaves is what the farmer collects.
+     */
+    private static void harvestsAreAnnouncedLikeAnyBrokenBlock(GameTestHelper helper) {
+        WorkerEntity worker = hireFarmer(helper, null);
+        BlockPos crop = FARM_CORNER;
+        helper.setBlock(crop, Blocks.WHEAT.defaultBlockState().setValue(CropBlock.AGE, 7));
+        int[] announcedWheat = new int[1];
+        Consumer<BlockDropsEvent> listener = event -> {
+            if (event.getBreaker() == worker) {
+                event.getDrops().stream().map(ItemEntity::getItem).filter(stack -> stack.is(Items.WHEAT)).forEach(stack -> announcedWheat[0] += stack.getCount());
+            }
+        };
+        NeoForge.EVENT_BUS.addListener(listener);
+        helper.succeedWhen(() -> {
+            helper.assertTrue(announcedWheat[0] == 1, "announced " + announcedWheat[0] + " wheat");
+            int collected = worker.getCollected().getOrDefault(BuiltInRegistries.ITEM.getKey(Items.WHEAT), 0);
+            helper.assertTrue(collected == 1, "collected " + collected + " wheat");
+            NeoForge.EVENT_BUS.unregister(listener);
         });
     }
 

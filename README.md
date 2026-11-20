@@ -140,6 +140,8 @@ Requires JDK 25.
     straight away; giving one a place to work, a chest or a bed where it couldn't live (or hiring one there) warns you.
   - **Advancements:** their own tab (hire a farmer, hire a fighter, an upgrade, a Master), which quest mods can use
     as tasks (`villagerhuts:workers/...`).
+  - **Production counters:** what a worker harvests drops the way any broken block's does (NeoForge's block drops
+    event), so mods that count production (like the Seed to Stars Colony Ledger) count it.
   When the server starts, its log says which of these are switched on.
 - **Seeds and bone meal:** farmers start with no seeds. Put seeds (wheat seeds, carrots, potatoes, beetroot
   seeds...) in their chest; the farmer fetches them and plants the empty farmland. Put bone meal in the chest
