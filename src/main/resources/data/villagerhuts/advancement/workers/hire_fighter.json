@@ -1,0 +1,23 @@
+{
+  "parent": "villagerhuts:workers/root",
+  "display": {
+    "icon": {
+      "id": "villagerhuts:fighter"
+    },
+    "title": {
+      "translate": "advancements.villagerhuts.hire_fighter.title"
+    },
+    "description": {
+      "translate": "advancements.villagerhuts.hire_fighter.description"
+    },
+    "frame": "task",
+    "show_toast": true,
+    "announce_to_chat": true,
+    "hidden": false
+  },
+  "criteria": {
+    "done": {
+      "trigger": "minecraft:impossible"
+    }
+  }
+}

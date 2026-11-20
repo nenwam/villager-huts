@@ -15,6 +15,9 @@ import com.mojang.serialization.Codec;
 
 import io.github.nenwam.villagerhuts.Config;
 import io.github.nenwam.villagerhuts.VillagerHuts;
+import io.github.nenwam.villagerhuts.compat.Seasons;
+import io.github.nenwam.villagerhuts.compat.Space;
+import io.github.nenwam.villagerhuts.compat.Teams;
 import io.github.nenwam.villagerhuts.entity.goal.AvoidCreepersGoal;
 import io.github.nenwam.villagerhuts.entity.goal.FetchAmmoGoal;
 import io.github.nenwam.villagerhuts.entity.goal.FetchFoodGoal;
@@ -43,6 +46,7 @@ import net.minecraft.world.item.enchantment.EnchantmentHelper;
 import net.minecraft.world.item.enchantment.Enchantments;
 import net.minecraft.world.phys.AABB;
 import net.neoforged.neoforge.common.CommonHooks;
+import net.neoforged.neoforge.items.IItemHandler;
 import io.github.nenwam.villagerhuts.entity.goal.DepositItemsGoal;
 import io.github.nenwam.villagerhuts.entity.goal.DescribesActivity;
 import io.github.nenwam.villagerhuts.entity.goal.FarmerWorkGoal;
@@ -70,11 +74,9 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.sounds.SoundEvent;
 import net.minecraft.sounds.SoundEvents;
-import net.minecraft.tags.BlockTags;
 import net.minecraft.world.DifficultyInstance;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.InteractionResult;
-import net.minecraft.world.Container;
 import net.minecraft.world.SimpleContainer;
 import net.minecraft.world.damagesource.DamageSource;
 import net.minecraft.world.entity.EntitySpawnReason;
@@ -100,7 +102,6 @@ import net.minecraft.world.item.BlockItem;
 import net.minecraft.world.level.ItemLike;
 import net.minecraft.world.level.ServerLevelAccessor;
 import net.minecraft.world.level.block.CropBlock;
-import net.minecraft.world.level.block.entity.HopperBlockEntity;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraft.resources.Identifier;
@@ -179,6 +180,7 @@ public class WorkerEntity extends PathfinderMob implements InventoryCarrier, Cro
             new Upgrade(ModItems.FLAWLESS_DIAMOND_CARROT, 2));
 
     private final SimpleContainer inventory = new SimpleContainer(9);
+    private final WorkerNotices.Tracker notices = new WorkerNotices.Tracker();
     private @Nullable UUID ownerId;
     private final Set<UUID> sharedWith = new LinkedHashSet<>();
     private Order order = Order.WORK;
@@ -369,13 +371,17 @@ public class WorkerEntity extends PathfinderMob implements InventoryCarrier, Cro
         return this.ownerId != null && this.ownerId.equals(player.getUUID());
     }
 
-    /** Whether this player can give it work and orders: its owner, someone it's shared with, or anyone if it has no owner. */
+    /**
+     * Whether this player can give it work and orders: its owner, someone it's shared with, someone in its owner's party
+     * (FTB Teams), or anyone if it has no owner.
+     */
     public boolean canCommand(Player player) {
         return this.canCommand(player.getUUID());
     }
 
     public boolean canCommand(UUID player) {
-        return this.ownerId == null || this.ownerId.equals(player) || this.sharedWith.contains(player);
+        return this.ownerId == null || this.ownerId.equals(player) || this.sharedWith.contains(player)
+                || (!this.level().isClientSide() && Teams.sameParty(this.ownerId, player));
     }
 
     /** The players its owner has shared it with. */
@@ -548,24 +554,14 @@ public class WorkerEntity extends PathfinderMob implements InventoryCarrier, Cro
     /** Whether its bed is still there (not broken since it was assigned). */
     public boolean hasBed() {
         BlockPos bed = this.bedPos;
-        return bed != null && this.level().isLoaded(bed) && this.level().getBlockState(bed).is(BlockTags.BEDS);
+        return bed != null && this.level().isLoaded(bed) && this.level().getBlockState(bed).is(ModTags.WORKER_BEDS);
     }
 
     /** Whether its chest is there and has something in it that matches. */
     public boolean chestHas(Predicate<ItemStack> wanted) {
         BlockPos pos = this.storagePos;
-        if (pos == null || !this.level().isLoaded(pos) || !this.level().getBlockState(pos).is(ModTags.WORKER_STORAGE)) {
-            return false;
-        }
-        Container chest = HopperBlockEntity.getContainerAt(this.level(), pos);
-        if (chest != null) {
-            for (int i = 0; i < chest.getContainerSize(); i++) {
-                if (wanted.test(chest.getItem(i))) {
-                    return true;
-                }
-            }
-        }
-        return false;
+        IItemHandler chest = pos == null ? null : WorkerStorage.at(this.level(), pos);
+        return chest != null && WorkerStorage.has(chest, wanted);
     }
 
     // ------------------------------------------------------------------ guard post & guard zone (fighters)
@@ -840,6 +836,10 @@ public class WorkerEntity extends PathfinderMob implements InventoryCarrier, Cro
         carrots.consume(upgrade.count(), player);
         this.rank++;
         this.applyRankStats();
+        WorkerAdvancements.award(player, WorkerAdvancements.UPGRADE);
+        if (upgradeFrom(this.rank) == null) {
+            WorkerAdvancements.award(player, WorkerAdvancements.MASTER);
+        }
         this.playSound(SoundEvents.VILLAGER_CELEBRATE, 1.0F, 1.0F);
         level.sendParticles(ParticleTypes.HAPPY_VILLAGER, this.getX(), this.getEyeY() + 0.3, this.getZ(), 15, 0.5, 0.5, 0.5, 0.0);
         if (this.getJob().isFighter()) {
@@ -1321,6 +1321,32 @@ public class WorkerEntity extends PathfinderMob implements InventoryCarrier, Cro
                 && stack.getItem() instanceof BlockItem blockItem && blockItem.getBlock() instanceof CropBlock;
     }
 
+    /**
+     * Seeds it can plant on its farm now: plantable, and (with Serene Seasons) in season there. Seeds out of season
+     * go to its chest until their season comes round.
+     */
+    public boolean canPlantNow(ItemStack stack) {
+        if (!isPlantableSeed(stack)) {
+            return false;
+        }
+        BoundingBox farm = this.farmArea;
+        if (farm == null) {
+            return true;
+        }
+        BlockPos middle = new BlockPos((farm.minX() + farm.maxX()) / 2, farm.minY(), (farm.minZ() + farm.maxZ()) / 2); // at crop height
+        return Seasons.canGrow(this.level(), ((BlockItem) stack.getItem()).getBlock(), middle);
+    }
+
+    // Has seeds (in its pockets or chest), just none it can plant this season.
+    private boolean hasOutOfSeasonSeeds() {
+        for (ItemStack stack : this.inventory.getItems()) {
+            if (isPlantableSeed(stack)) {
+                return true;
+            }
+        }
+        return this.chestHas(WorkerEntity::isPlantableSeed);
+    }
+
     public void setStorageState(StorageState state) {
         this.storageState = state;
     }
@@ -1375,9 +1401,10 @@ public class WorkerEntity extends PathfinderMob implements InventoryCarrier, Cro
         }
     }
 
+    /** Whether it has seeds it can plant now (see canPlantNow). */
     public boolean hasSeeds() {
         for (ItemStack stack : this.inventory.getItems()) {
-            if (isPlantableSeed(stack)) {
+            if (this.canPlantNow(stack)) {
                 return true;
             }
         }
@@ -1386,6 +1413,11 @@ public class WorkerEntity extends PathfinderMob implements InventoryCarrier, Cro
 
     /** What the worker is doing right now, in words. Server side only (it names players). */
     public Component currentStatus() {
+        // Can't breathe, or burning or freezing (Ad Astra): nothing else matters.
+        Space.Danger danger = Space.dangerFor(this, this.level(), BlockPos.containing(this.getX(), this.getEyeY(), this.getZ()));
+        if (danger != null) {
+            return danger.status();
+        }
         WrappedGoal running = this.goalSelector.getAvailableGoals().stream()
                 .filter(WrappedGoal::isRunning)
                 .filter(goal -> goal.getGoal() instanceof DescribesActivity || goal.getGoal() instanceof PanicGoal)
@@ -1455,7 +1487,7 @@ public class WorkerEntity extends PathfinderMob implements InventoryCarrier, Cro
             return Component.translatable("activity.villagerhuts.pockets_full");
         }
         if (outOfSeeds) {
-            return Component.translatable("activity.villagerhuts.out_of_seeds");
+            return Component.translatable(this.hasOutOfSeasonSeeds() ? "activity.villagerhuts.out_of_season" : "activity.villagerhuts.out_of_seeds");
         }
         if (this.farmUnreachable && this.farmWorkStuck) {
             return Component.translatable("activity.villagerhuts.farm_unreachable");
@@ -1476,16 +1508,20 @@ public class WorkerEntity extends PathfinderMob implements InventoryCarrier, Cro
             this.finishClearingIfDone();
             if (this.tickCount % 20 == 0) {
                 WorkerRoster.get(level.getServer()).update(this);
+                this.notices.check(this, level);
             }
         }
     }
 
-    // Dying (or being removed for good) takes the worker off its owner's list right away.
+    // Dying (or being removed for good) takes the worker off its owner's list right away. Dying, it tells its owner.
     @Override
     public void die(DamageSource source) {
+        boolean wasDead = this.dead;
+        Component deathMessage = this.getCombatTracker().getDeathMessage(); // before dying clears what hit it
         super.die(source);
-        if (this.dead && this.level() instanceof ServerLevel level) {
+        if (this.dead && !wasDead && this.level() instanceof ServerLevel level) {
             WorkerRoster.get(level.getServer()).remove(this.getUUID());
+            WorkerNotices.died(this, level, deathMessage);
         }
     }
 

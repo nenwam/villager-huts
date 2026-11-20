@@ -309,7 +309,7 @@ public class FarmerWorkGoal extends Goal implements DescribesActivity {
         // All done: nothing to do here with what it carries (not even work it's stuck on), and nothing in the
         // chest that would give it more.
         boolean done = found.isEmpty() && !blocked
-                && !(empty + toTill > 0 && !hasSeeds && this.worker.chestHas(WorkerEntity::isPlantableSeed))
+                && !(empty + toTill > 0 && !hasSeeds && this.worker.chestHas(this.worker::canPlantNow))
                 && !(growing > 0 && !hasBoneMeal && this.worker.chestHas(WorkerEntity::isBoneMeal));
         this.worker.setFarmCounts(farmland + toTill, empty + toTill, ripeCount, growing, done, blocked);
         found.sort(Comparator.<Work>comparingInt(work -> work.task() == Task.WATER ? 0 : 1)
@@ -474,13 +474,13 @@ public class FarmerWorkGoal extends Goal implements DescribesActivity {
         return true;
     }
 
-    /** Slot of the preferred seed if the worker has it, otherwise of any plantable seed, or -1. */
+    /** Slot of the preferred seed if the worker has it, otherwise of any seed it can plant now (in season), or -1. */
     private int findSeedSlot(@Nullable Item preferred) {
         SimpleContainer inventory = this.worker.getInventory();
         int fallback = -1;
         for (int i = 0; i < inventory.getContainerSize(); i++) {
             ItemStack stack = inventory.getItem(i);
-            if (!WorkerEntity.isPlantableSeed(stack)) {
+            if (!this.worker.canPlantNow(stack)) {
                 continue;
             }
             if (stack.getItem() == preferred) {

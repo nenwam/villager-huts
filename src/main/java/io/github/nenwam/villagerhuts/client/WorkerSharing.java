@@ -29,7 +29,8 @@ import org.jspecify.annotations.Nullable;
 
 /**
  * The sharing page of the worker panel (the player-head button on a worker's details page): who owns the worker,
- * who it's shared with, and, for its owner, the other players online it could be shared with.
+ * who it's shared with (everyone in its owner's party too, with FTB Teams), and, for its owner, the other players
+ * online it could be shared with.
  *  - Its owner can share it with a player (+), stop sharing it (×), or give it to a player it's shared with
  *    (the golden helmet; click it twice). They keep using it after giving it away, as a shared player.
  *  - A player it's shared with can stop using it (× on their own row).
@@ -52,7 +53,7 @@ class WorkerSharing extends PanelList<WorkerSharing.Row> {
     /** Rebuilds the rows if the worker or the players online changed. */
     void refresh(@Nullable WorkerInfo info) {
         List<PlayerInfo> online = onlinePlayers();
-        String now = info == null ? "" : info.id() + "|" + info.owner() + "|" + info.shared() + "|" + info.yours() + "|"
+        String now = info == null ? "" : info.id() + "|" + info.owner() + "|" + info.shared() + "|" + info.party() + "|" + info.yours() + "|"
                 + online.stream().map(p -> p.getProfile().id().toString()).toList() + "|" + this.confirmingGive;
         if (now.equals(this.shown)) {
             return;
@@ -74,7 +75,9 @@ class WorkerSharing extends PanelList<WorkerSharing.Row> {
                 info.yours() ? Component.translatable("gui.villagerhuts.sharing.you") : null, List.of()), PLAYER_ROW);
 
         this.addEntry(new TextRow(Component.translatable("gui.villagerhuts.sharing.shared_with"), NativeStyle.LABEL), TEXT_ROW);
-        if (info.shared().isEmpty()) {
+        info.party().ifPresent(party ->
+                this.addEntry(new TextRow(Component.translatable("gui.villagerhuts.sharing.party", party), NativeStyle.LABEL), TEXT_ROW));
+        if (info.shared().isEmpty() && info.party().isEmpty()) {
             this.addEntry(new TextRow(Component.translatable("gui.villagerhuts.sharing.nobody"), NativeStyle.LABEL_SOFT), TEXT_ROW);
         }
         for (WorkerInfo.PlayerRef player : info.shared()) {

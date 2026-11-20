@@ -3,6 +3,7 @@
     "#c:tools/melee_weapon",
     "#minecraft:swords",
     "#minecraft:axes",
-    "#minecraft:spears"
+    "#minecraft:spears",
+    { "id": "#c:tools/knife", "required": false }
   ]
 }

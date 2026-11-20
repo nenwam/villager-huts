@@ -16,6 +16,7 @@ import com.mojang.serialization.MapCodec;
 import com.mojang.serialization.codecs.RecordCodecBuilder;
 
 import io.github.nenwam.villagerhuts.VillagerHuts;
+import io.github.nenwam.villagerhuts.compat.Teams;
 import io.github.nenwam.villagerhuts.entity.WorkerEntity;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.UUIDUtil;
@@ -69,10 +70,11 @@ public final class WorkerRoster extends SavedData {
      *                    ("" = remove its name)
      * @param farm        its farm (a fighter: the area it guards round its post)
      * @param bed         the head end of its bed
+     * @param position    where it was at its last refresh (where it still is, if it's far away: it only moves while loaded)
      */
     public record Entry(UUID owner, List<UUID> shared, int number, ResourceKey<Level> dimension, Optional<String> customName,
                         Optional<String> pendingName, String job, String order, long employedTicks, Optional<BoundingBox> farm,
-                        Optional<BlockPos> storage, Optional<BlockPos> bed, Progress progress) {
+                        Optional<BlockPos> storage, Optional<BlockPos> bed, Optional<BlockPos> position, Progress progress) {
         static final Codec<Entry> CODEC = RecordCodecBuilder.create(i -> i.group(
                 UUIDUtil.CODEC.fieldOf("owner").forGetter(Entry::owner),
                 UUIDUtil.CODEC.listOf().optionalFieldOf("shared", List.of()).forGetter(Entry::shared),
@@ -86,6 +88,7 @@ public final class WorkerRoster extends SavedData {
                 BoundingBox.CODEC.optionalFieldOf("farm").forGetter(Entry::farm),
                 BlockPos.CODEC.optionalFieldOf("storage").forGetter(Entry::storage),
                 BlockPos.CODEC.optionalFieldOf("bed").forGetter(Entry::bed),
+                BlockPos.CODEC.optionalFieldOf("position").forGetter(Entry::position),
                 Progress.MAP_CODEC.forGetter(Entry::progress)
         ).apply(i, Entry::new));
 
@@ -109,19 +112,19 @@ public final class WorkerRoster extends SavedData {
             return this.progress.tool();
         }
 
-        /** Whether this player can give the worker work and orders: its owner, or someone it's shared with. */
+        /** Whether this player can give the worker work and orders: its owner, someone it's shared with, or its owner's party. */
         public boolean canCommand(UUID player) {
-            return this.owner.equals(player) || this.shared.contains(player);
+            return this.owner.equals(player) || this.shared.contains(player) || Teams.sameParty(this.owner, player);
         }
 
         Entry withOwnership(UUID newOwner, List<UUID> newShared, int newNumber) {
             return new Entry(newOwner, newShared, newNumber, this.dimension, this.customName, this.pendingName, this.job, this.order,
-                    this.employedTicks, this.farm, this.storage, this.bed, this.progress);
+                    this.employedTicks, this.farm, this.storage, this.bed, this.position, this.progress);
         }
 
         Entry withName(Optional<String> name) {
             return new Entry(this.owner, this.shared, this.number, this.dimension, name, Optional.of(name.orElse("")), this.job, this.order,
-                    this.employedTicks, this.farm, this.storage, this.bed, this.progress);
+                    this.employedTicks, this.farm, this.storage, this.bed, this.position, this.progress);
         }
     }
 
@@ -170,6 +173,7 @@ public final class WorkerRoster extends SavedData {
         this.entries.put(worker.getUUID(), new Entry(owner, List.copyOf(worker.getSharedWith()), number, worker.level().dimension(), name,
                 Optional.empty(), worker.getJob().id(), worker.getOrder().id(), worker.getEmployedTicks(),
                 Optional.ofNullable(worker.getWorkArea()), Optional.ofNullable(worker.getStoragePos()), Optional.ofNullable(worker.getBedPos()),
+                Optional.of(worker.blockPosition()),
                 new Progress(worker.getRank(), worker.getHarvestedToday(), Map.copyOf(worker.getCollected()), Map.copyOf(worker.getDefeated()),
                         worker.getMainHandItem().isEmpty() ? Optional.empty()
                                 : Optional.of(BuiltInRegistries.ITEM.getKey(worker.getMainHandItem().getItem())),
@@ -224,7 +228,7 @@ public final class WorkerRoster extends SavedData {
         return level != null && level.getEntity(worker) instanceof WorkerEntity found && found.isAlive() ? found : null;
     }
 
-    /** The workers this player can use: their own (by number), then the ones shared with them (by owner, then number). */
+    /** The workers this player can use: their own (by number), then the ones shared with them or their party (by owner, then number). */
     public List<Map.Entry<UUID, Entry>> forPlayer(UUID player) {
         List<Map.Entry<UUID, Entry>> result = new ArrayList<>();
         for (Map.Entry<UUID, Entry> entry : this.entries.entrySet()) {

@@ -7,20 +7,20 @@ import java.util.List;
 import java.util.function.Predicate;
 
 import io.github.nenwam.villagerhuts.entity.WorkerEntity;
-import io.github.nenwam.villagerhuts.registry.ModTags;
+import io.github.nenwam.villagerhuts.entity.WorkerStorage;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.server.level.ServerLevel;
-import net.minecraft.world.Container;
 import net.minecraft.world.entity.ai.goal.Goal;
 import net.minecraft.world.item.ItemStack;
-import net.minecraft.world.level.block.entity.HopperBlockEntity;
 import net.minecraft.world.level.pathfinder.Path;
 import net.minecraft.world.phys.Vec3;
+import net.neoforged.neoforge.items.IItemHandler;
+import net.neoforged.neoforge.items.ItemHandlerHelper;
 import org.jspecify.annotations.Nullable;
 
 /**
- * A trip to the worker's assigned chest (or barrel): walks to a floor spot right beside it (so always
+ * A trip to the worker's assigned chest (or barrel, drawers...: see WorkerStorage): walks to a floor spot right beside it (so always
  * on the same side of any wall), and uses it once it can reach it with nothing in between. Subclasses
  * decide when a trip is needed and what to do there (store the harvest, fetch seeds, ...).
  */
@@ -46,10 +46,10 @@ abstract class StorageTripGoal extends Goal implements DescribesActivity {
     protected abstract boolean needsTrip();
 
     /** Whether this storage block is worth walking to (e.g. it has seeds in it). */
-    protected abstract boolean isUseful(Container container);
+    protected abstract boolean isUseful(IItemHandler storage);
 
     /** Does the job at the storage block. Returns how many ticks to wait before the next trip. */
-    protected abstract int useStorage(Container container);
+    protected abstract int useStorage(IItemHandler storage);
 
     /** How long to wait before checking again when there's no trip to make (or no way to make it). */
     protected abstract int retryTicks();
@@ -108,38 +108,35 @@ abstract class StorageTripGoal extends Goal implements DescribesActivity {
             return;
         }
 
-        Container container = HopperBlockEntity.getContainerAt(this.worker.level(), pos);
-        int wait = container == null ? this.retryTicks() : this.useStorage(container);
+        IItemHandler storage = WorkerStorage.at(this.worker.level(), pos);
+        int wait = storage == null ? this.retryTicks() : this.useStorage(storage);
         this.nextTryTick = this.worker.tickCount + wait;
         this.storage = null;
     }
 
     /**
-     * Moves up to `wanted` matching items from the container into the worker's pockets (stopping when they're full).
+     * Moves up to `wanted` matching items from the storage into the worker's pockets (stopping when they're full).
      * Returns how many it took.
      */
-    protected int take(Container container, Predicate<ItemStack> matches, int wanted) {
+    protected int take(IItemHandler storage, Predicate<ItemStack> matches, int wanted) {
         int taken = 0;
-        for (int i = 0; i < container.getContainerSize() && taken < wanted; i++) {
-            ItemStack stack = container.getItem(i);
+        for (int i = 0; i < storage.getSlots() && taken < wanted; i++) {
+            ItemStack stack = storage.getStackInSlot(i);
             if (!matches.test(stack)) {
                 continue;
             }
-            ItemStack part = container.removeItem(i, Math.min(stack.getCount(), wanted - taken));
+            ItemStack part = storage.extractItem(i, Math.min(stack.getCount(), wanted - taken), false);
             int partCount = part.getCount();
             ItemStack rest = this.worker.getInventory().addItem(part);
             taken += partCount - rest.getCount();
-            if (!rest.isEmpty()) { // pockets full: put the rest back and stop
-                ItemStack inSlot = container.getItem(i);
-                if (inSlot.isEmpty()) {
-                    container.setItem(i, rest);
-                } else {
-                    inSlot.grow(rest.getCount());
+            if (!rest.isEmpty()) { // pockets full: put the rest back (anywhere it fits; on the floor if nowhere) and stop
+                ItemStack left = ItemHandlerHelper.insertItemStacked(storage, storage.insertItem(i, rest, false), false);
+                if (!left.isEmpty()) {
+                    this.worker.spawnAtLocation(left);
                 }
                 break;
             }
         }
-        container.setChanged();
         if (taken > 0) {
             this.worker.markWorked(); // so it doesn't count as idle and put it straight back
         }
@@ -153,13 +150,12 @@ abstract class StorageTripGoal extends Goal implements DescribesActivity {
         if (storagePos != null && !level.isLoaded(storagePos)) {
             return false; // try again later
         }
-        Container container = storagePos != null && level.getBlockState(storagePos).is(ModTags.WORKER_STORAGE)
-                ? HopperBlockEntity.getContainerAt(level, storagePos) : null;
-        if (storagePos == null || container == null) { // never assigned, or broken since
+        IItemHandler storage = storagePos != null ? WorkerStorage.at(level, storagePos) : null;
+        if (storagePos == null || storage == null) { // never assigned, or broken since
             this.worker.setStorageState(WorkerEntity.StorageState.NONE);
             return false;
         }
-        if (!this.isUseful(container)) {
+        if (!this.isUseful(storage)) {
             this.worker.setStorageState(WorkerEntity.StorageState.OK);
             return false;
         }

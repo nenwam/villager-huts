@@ -1,0 +1,23 @@
+{
+  "parent": "villagerhuts:workers/upgrade",
+  "display": {
+    "icon": {
+      "id": "villagerhuts:flawless_diamond_carrot"
+    },
+    "title": {
+      "translate": "advancements.villagerhuts.master.title"
+    },
+    "description": {
+      "translate": "advancements.villagerhuts.master.description"
+    },
+    "frame": "challenge",
+    "show_toast": true,
+    "announce_to_chat": true,
+    "hidden": false
+  },
+  "criteria": {
+    "done": {
+      "trigger": "minecraft:impossible"
+    }
+  }
+}

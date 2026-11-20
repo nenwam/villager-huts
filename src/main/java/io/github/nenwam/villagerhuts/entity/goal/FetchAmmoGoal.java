@@ -1,12 +1,10 @@
 package io.github.nenwam.villagerhuts.entity.goal;
 
-import java.util.function.Predicate;
-
 import io.github.nenwam.villagerhuts.entity.WorkerEntity;
+import io.github.nenwam.villagerhuts.entity.WorkerStorage;
 import io.github.nenwam.villagerhuts.job.Weapons;
 import net.minecraft.network.chat.Component;
-import net.minecraft.world.Container;
-import net.minecraft.world.item.ItemStack;
+import net.neoforged.neoforge.items.IItemHandler;
 
 /**
  * Ranger: running low on ammo (arrows, or fireworks for a crossbow; tipped and spectral arrows count)? Walk to
@@ -34,20 +32,14 @@ public class FetchAmmoGoal extends StorageTripGoal {
     }
 
     @Override
-    protected boolean isUseful(Container container) {
-        Predicate<ItemStack> ammo = Weapons.ammoFor(this.worker.getMainHandItem());
-        for (int i = 0; i < container.getContainerSize(); i++) {
-            if (ammo.test(container.getItem(i))) {
-                return true;
-            }
-        }
-        return false;
+    protected boolean isUseful(IItemHandler storage) {
+        return WorkerStorage.has(storage, Weapons.ammoFor(this.worker.getMainHandItem()));
     }
 
     @Override
-    protected int useStorage(Container container) {
+    protected int useStorage(IItemHandler storage) {
         int wanted = MAX_AMMO - this.worker.getAmmoCount();
-        return this.take(container, Weapons.ammoFor(this.worker.getMainHandItem()), wanted) > 0 ? 20 : CHECK_TICKS;
+        return this.take(storage, Weapons.ammoFor(this.worker.getMainHandItem()), wanted) > 0 ? 20 : CHECK_TICKS;
     }
 
     @Override

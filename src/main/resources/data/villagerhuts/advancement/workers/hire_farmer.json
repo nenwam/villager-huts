@@ -1,0 +1,23 @@
+{
+  "parent": "villagerhuts:workers/root",
+  "display": {
+    "icon": {
+      "id": "villagerhuts:farmer"
+    },
+    "title": {
+      "translate": "advancements.villagerhuts.hire_farmer.title"
+    },
+    "description": {
+      "translate": "advancements.villagerhuts.hire_farmer.description"
+    },
+    "frame": "task",
+    "show_toast": true,
+    "announce_to_chat": true,
+    "hidden": false
+  },
+  "criteria": {
+    "done": {
+      "trigger": "minecraft:impossible"
+    }
+  }
+}

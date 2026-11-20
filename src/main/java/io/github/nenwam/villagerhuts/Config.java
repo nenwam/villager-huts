@@ -37,5 +37,13 @@ public class Config {
             .comment("Only a worker's owner can hurt it (other players' hits and arrows do nothing). Turn off for PvP servers")
             .define("protectWorkers", true);
 
+    public static final ModConfigSpec.BooleanValue SHARE_WITH_TEAM = BUILDER
+            .comment("With FTB Teams installed: everyone in a party can use each other's workers, as if they were shared with them")
+            .define("shareWithTeam", true);
+
+    public static final ModConfigSpec.BooleanValue NOTIFY_OWNERS = BUILDER
+            .comment("Tell a worker's owner in chat when it needs them (chest full, out of seeds or arrows, stuck), and when it dies")
+            .define("notifyOwners", true);
+
     static final ModConfigSpec SPEC = BUILDER.build();
 }

@@ -4,14 +4,22 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.function.Consumer;
 
 import io.github.nenwam.villagerhuts.VillagerHuts;
+import io.github.nenwam.villagerhuts.compat.Seasons;
+import io.github.nenwam.villagerhuts.compat.Space;
+import io.github.nenwam.villagerhuts.compat.Teams;
+import io.github.nenwam.villagerhuts.entity.WorkerAdvancements;
 import io.github.nenwam.villagerhuts.entity.WorkerAssigning;
 import io.github.nenwam.villagerhuts.entity.WorkerEntity;
 import io.github.nenwam.villagerhuts.entity.WorkerNames;
 import io.github.nenwam.villagerhuts.entity.WorkerLook;
+import io.github.nenwam.villagerhuts.entity.WorkerNotices;
+import io.github.nenwam.villagerhuts.farm.FarmPlan;
+import io.github.nenwam.villagerhuts.item.FarmerItem;
 import io.github.nenwam.villagerhuts.item.FighterItem;
 import io.github.nenwam.villagerhuts.job.Weapons;
 import net.minecraft.core.registries.BuiltInRegistries;
@@ -28,6 +36,8 @@ import io.github.nenwam.villagerhuts.farm.FarmPlan;
 import io.github.nenwam.villagerhuts.item.FarmerItem;
 import io.github.nenwam.villagerhuts.job.WorkerJob;
 import io.github.nenwam.villagerhuts.network.ModNetwork;
+import io.github.nenwam.villagerhuts.network.OrderAllPayload;
+import io.github.nenwam.villagerhuts.network.PanelNoticePayload;
 import io.github.nenwam.villagerhuts.network.ShareWorkerPayload;
 import io.github.nenwam.villagerhuts.network.WorkerCommandPayload;
 import io.github.nenwam.villagerhuts.network.WorkerInfo;
@@ -35,6 +45,7 @@ import io.github.nenwam.villagerhuts.network.WorkerListPayload;
 import io.github.nenwam.villagerhuts.registry.ModItems;
 import io.netty.buffer.Unpooled;
 import io.github.nenwam.villagerhuts.roster.WorkerRoster;
+import net.minecraft.advancements.AdvancementHolder;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.core.Holder;
@@ -61,6 +72,8 @@ import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
+import net.minecraft.world.item.ProjectileWeaponItem;
+import net.minecraft.world.item.context.UseOnContext;
 import net.minecraft.world.item.crafting.CraftingInput;
 import net.minecraft.world.item.crafting.RecipeType;
 import net.minecraft.world.level.GameType;
@@ -73,6 +86,8 @@ import net.minecraft.world.level.block.FarmlandBlock;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.properties.BedPart;
 import net.minecraft.world.level.levelgen.structure.BoundingBox;
+import net.minecraft.world.phys.AABB;
+import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.Vec3;
 import net.neoforged.bus.api.IEventBus;
 import net.neoforged.neoforge.event.RegisterGameTestsEvent;
@@ -149,6 +164,14 @@ public final class VillagerHutsTests {
             new Test("worker_panel_messages_survive_the_network", 40, VillagerHutsTests::workerPanelMessagesSurviveTheNetwork),
             new Test("farmer_sleeps_in_its_bed_at_night", 800, VillagerHutsTests::farmerSleepsInItsBedAtNight, When.NIGHT),
             new Test("clearing_the_field_and_starting_again", 4000, VillagerHutsTests::clearingTheFieldAndStartingAgain),
+            new Test("parties_share_their_workers", 40, VillagerHutsTests::partiesShareTheirWorkers),
+            new Test("farmers_skip_seeds_out_of_season", 2400, VillagerHutsTests::farmersSkipSeedsOutOfSeason),
+            new Test("owners_hear_when_workers_need_them", 400, VillagerHutsTests::ownersHearWhenWorkersNeedThem),
+            new Test("ordering_all_workers_at_once", 40, VillagerHutsTests::orderingAllWorkersAtOnce),
+            new Test("refusals_say_why_and_the_compass_finds_workers", 40, VillagerHutsTests::refusalsSayWhyAndTheCompassFindsWorkers),
+            new Test("workers_warn_when_they_cant_breathe", 200, VillagerHutsTests::workersWarnWhenTheyCantBreathe),
+            new Test("hiring_and_upgrading_give_advancements", 40, VillagerHutsTests::hiringAndUpgradingGiveAdvancements),
+            new Test("any_tagged_storage_works_as_a_chest", 2400, VillagerHutsTests::anyTaggedStorageWorksAsAChest),
             new Test("fighter_item_hires_an_unarmed_sikh_fighter", 40, VillagerHutsTests::fighterItemHiresAnUnarmedSikhFighter),
             new Test("weapons_make_warriors_and_rangers", 40, VillagerHutsTests::weaponsMakeWarriorsAndRangers),
             new Test("warrior_defends_its_post", 600, VillagerHutsTests::warriorDefendsItsPost),
@@ -742,8 +765,8 @@ public final class VillagerHutsTests {
                 })
                 .thenExecute(() -> {
                     int harvested = worker.getHarvestedToday();
-                    // A wheat harvest is at most 4 items, so it stops within 4 of the limit, and never past it.
-                    helper.assertTrue(harvested <= limit && harvested > limit - 4, "harvested " + harvested + " with a limit of " + limit);
+                    // A wheat harvest is at most 5 items (a wheat and up to 4 seeds), so it stops within 5 of the limit, and never past it.
+                    helper.assertTrue(harvested <= limit && harvested > limit - 5, "harvested " + harvested + " with a limit of " + limit);
                     ripeLeft[0] = countBlocks(helper, Blocks.WHEAT);
                     helper.assertTrue(ripeLeft[0] > 0 && count(chest, Items.WHEAT) > 0, "nothing left for tomorrow, or nothing stored");
                     runCommand(helper, "time add 24000");
@@ -805,6 +828,7 @@ public final class VillagerHutsTests {
         Player owner = helper.makeMockPlayer(GameType.SURVIVAL);
         ServerPlayer friend = helper.makeMockServerPlayerInLevel();
         try {
+            Teams.addPartyForTests(new Teams.Party(UUID.randomUUID(), "Round Trip Party"), Set.of(owner.getUUID())); // sends a party name
             WorkerEntity worker = hireFarmer(helper, owner);
             placeBed(helper);
             assign(helper, worker, BED_HEAD);
@@ -823,7 +847,10 @@ public final class VillagerHutsTests {
             assertRoundTrip(helper, server, ShareWorkerPayload.STREAM_CODEC,
                     new ShareWorkerPayload(worker.getUUID(), friend.getUUID(), ShareWorkerPayload.Action.GIVE));
             assertRoundTrip(helper, server, WorkerCommandPayload.STREAM_CODEC,
-                    new WorkerCommandPayload(worker.getUUID(), WorkerCommandPayload.Command.STAY));
+                    new WorkerCommandPayload(worker.getUUID(), WorkerCommandPayload.Command.LOCATE_ON_MAP));
+            assertRoundTrip(helper, server, OrderAllPayload.STREAM_CODEC, new OrderAllPayload(WorkerCommandPayload.Command.FOLLOW));
+            assertRoundTrip(helper, server, PanelNoticePayload.STREAM_CODEC,
+                    new PanelNoticePayload(Component.translatable("message.villagerhuts.too_far", Component.literal("Asha"))));
             helper.succeed();
         } finally {
             server.getPlayerList().remove(friend);
@@ -843,6 +870,236 @@ public final class VillagerHutsTests {
         byte[] resent = new byte[again.readableBytes()];
         again.getBytes(again.readerIndex(), resent);
         helper.assertTrue(java.util.Arrays.equals(sent, resent), "came back as " + read + ", sent " + value);
+    }
+
+    /**
+     * With FTB Teams, everyone in its owner's party can use a worker, as if it were shared with them (it's in their panel,
+     * as the party's); only its owner can take its tool. Players outside the party can't use it.
+     */
+    private static void partiesShareTheirWorkers(GameTestHelper helper) {
+        MinecraftServer server = helper.getLevel().getServer();
+        ServerPlayer owner = helper.makeMockServerPlayerInLevel();
+        ServerPlayer mate = helper.makeMockServerPlayerInLevel();
+        ServerPlayer outsider = helper.makeMockServerPlayerInLevel();
+        try {
+            Teams.addPartyForTests(new Teams.Party(UUID.randomUUID(), "Test Party"), Set.of(owner.getUUID(), mate.getUUID()));
+            WorkerEntity worker = hireFarmer(helper, owner);
+            UUID id = worker.getUUID();
+            WorkerRoster.get(server).update(worker);
+            helper.assertTrue(worker.canCommand(mate) && !worker.canCommand(outsider),
+                    "party member can use it: " + worker.canCommand(mate) + ", outsider: " + worker.canCommand(outsider));
+            List<WorkerInfo> matesList = ModNetwork.workerList(server, mate.getUUID());
+            helper.assertTrue(matesList.size() == 1 && !matesList.get(0).yours() && matesList.get(0).party().filter("Test Party"::equals).isPresent(),
+                    "not in the party member's panel as the party's");
+            helper.assertTrue(ModNetwork.workerList(server, outsider.getUUID()).isEmpty(), "in an outsider's panel");
+            helper.assertTrue(ModNetwork.commandWorker(server, mate, id, WorkerCommandPayload.Command.FOLLOW)
+                    && mate.getUUID().equals(worker.getFollowTargetId()), "doesn't follow the party member who said so");
+            helper.assertTrue(!ModNetwork.commandWorker(server, mate, id, WorkerCommandPayload.Command.TAKE_TOOL)
+                    && worker.getMainHandItem().is(Items.IRON_HOE), "a party member took the hoe");
+            helper.assertTrue(!ModNetwork.commandWorker(server, outsider, id, WorkerCommandPayload.Command.STAY), "an outsider gave it orders");
+            helper.succeed();
+        } finally {
+            server.getPlayerList().remove(owner);
+            server.getPlayerList().remove(mate);
+            server.getPlayerList().remove(outsider);
+        }
+    }
+
+    /**
+     * With Serene Seasons, farmers plant only what grows this season: here wheat is out of season, so they take the
+     * carrots from the chest and plant those, leave the wheat seeds there, and say their seeds won't grow this season.
+     */
+    private static void farmersSkipSeedsOutOfSeason(GameTestHelper helper) {
+        WorkerEntity worker = hireFarmer(helper, null);
+        BoundingBox farm = BoundingBox.fromCorners(helper.absolutePos(new BlockPos(FARM_MIN_X, 0, FARM_MIN_Z)),
+                helper.absolutePos(new BlockPos(FARM_MAX_X, 4, FARM_MAX_Z)));
+        Runnable wheatOutOfSeason = Seasons.addRuleForTests(helper.getLevel(), farm, crop -> crop != Blocks.WHEAT);
+        Container chest = container(helper, CHEST);
+        chest.setItem(0, new ItemStack(Items.WHEAT_SEEDS, 8));
+        chest.setItem(1, new ItemStack(Items.CARROT, 5));
+        helper.succeedWhen(() -> {
+            helper.assertTrue(countBlocks(helper, Blocks.CARROTS) == 5, "planted " + countBlocks(helper, Blocks.CARROTS) + " of 5 carrots");
+            helper.assertTrue(countBlocks(helper, Blocks.WHEAT) == 0, "planted wheat out of season");
+            helper.assertTrue(count(chest, Items.WHEAT_SEEDS) == 8, "took wheat seeds out of season");
+            assertStatus(helper, worker, "activity.villagerhuts.out_of_season");
+            wheatOutOfSeason.run(); // passed: a later test may use this spot
+        });
+    }
+
+    /** Its owner hears once when it needs them (here: out of seeds), not every second it lasts; and hears when it dies. */
+    private static void ownersHearWhenWorkersNeedThem(GameTestHelper helper) {
+        MinecraftServer server = helper.getLevel().getServer();
+        ServerPlayer owner = helper.makeMockServerPlayerInLevel();
+        List<WorkerNotices.Sent> sent = WorkerNotices.recordForTests();
+        WorkerEntity worker = hireFarmer(helper, owner); // a farm and a chest, but no seeds anywhere
+        helper.runAfterDelay(300, () -> {
+            try {
+                List<Component> told = sent.stream().filter(s -> s.player().equals(owner.getUUID())).map(WorkerNotices.Sent::message).toList();
+                helper.assertTrue(told.size() == 1, "owner was told " + told.size() + " times: " + told);
+                assertKey(helper, told.get(0), "message.villagerhuts.needs_you");
+                Object status = ((TranslatableContents) told.get(0).getContents()).getArgs()[4];
+                assertKey(helper, (Component) status, "activity.villagerhuts.out_of_seeds");
+                worker.kill();
+                List<Component> afterDeath = sent.stream().filter(s -> s.player().equals(owner.getUUID())).map(WorkerNotices.Sent::message).toList();
+                helper.assertTrue(afterDeath.size() == 2, "owner wasn't told it died: " + afterDeath);
+                assertKey(helper, afterDeath.get(1), "message.villagerhuts.worker_died");
+                helper.succeed();
+            } finally {
+                server.getPlayerList().remove(owner);
+            }
+        });
+    }
+
+    /** The list page's buttons give all the player's own workers an order at once; workers they don't own are left alone. */
+    private static void orderingAllWorkersAtOnce(GameTestHelper helper) {
+        MinecraftServer server = helper.getLevel().getServer();
+        ServerPlayer owner = helper.makeMockServerPlayerInLevel();
+        Player other = helper.makeMockPlayer(GameType.SURVIVAL);
+        try {
+            WorkerEntity farmer = hireFarmer(helper, owner);
+            WorkerEntity fighter = hireFighter(helper, owner, new ItemStack(Items.IRON_SWORD));
+            WorkerEntity someoneElses = FarmerItem.spawnFarmer(helper.getLevel(), helper.absolutePos(WORKER_SPOT), other);
+            helper.assertTrue(someoneElses != null, "no farmer spawned");
+            WorkerRoster roster = WorkerRoster.get(server);
+            List.of(farmer, fighter, someoneElses).forEach(roster::update);
+
+            Component result = ModNetwork.orderAll(server, owner, WorkerCommandPayload.Command.STAY);
+            helper.assertTrue(farmer.getOrder() == WorkerEntity.Order.STAY && fighter.getOrder() == WorkerEntity.Order.STAY,
+                    "not all staying: " + farmer.getOrder() + ", " + fighter.getOrder());
+            helper.assertTrue(someoneElses.getOrder() == WorkerEntity.Order.FOLLOW, "someone else's worker took the order");
+            assertKey(helper, result, "message.villagerhuts.ordered_all.stay");
+            helper.assertTrue(Integer.valueOf(2).equals(((TranslatableContents) result.getContents()).getArgs()[0]), "said " + result.getString());
+
+            ModNetwork.orderAll(server, owner, WorkerCommandPayload.Command.FOLLOW);
+            helper.assertTrue(owner.getUUID().equals(farmer.getFollowTargetId()) && owner.getUUID().equals(fighter.getFollowTargetId()),
+                    "not all following the player");
+            ModNetwork.orderAll(server, owner, WorkerCommandPayload.Command.WORK);
+            helper.assertTrue(farmer.getOrder() == WorkerEntity.Order.WORK && fighter.getOrder() == WorkerEntity.Order.WORK, "not all back to work");
+            helper.succeed();
+        } finally {
+            server.getPlayerList().remove(owner);
+        }
+    }
+
+    /**
+     * A panel button the server turns down says why (it isn't yours, they aren't online, it's gone). The compass says
+     * where a worker is, with a waypoint line for Xaero's minimap, and where it was last when it's far away.
+     */
+    private static void refusalsSayWhyAndTheCompassFindsWorkers(GameTestHelper helper) {
+        MinecraftServer server = helper.getLevel().getServer();
+        ServerPlayer owner = helper.makeMockServerPlayerInLevel();
+        ServerPlayer stranger = helper.makeMockServerPlayerInLevel();
+        Player offline = helper.makeMockPlayer(GameType.SURVIVAL);
+        try {
+            WorkerEntity worker = hireFarmer(helper, owner);
+            UUID id = worker.getUUID();
+            WorkerRoster roster = WorkerRoster.get(server);
+            roster.update(worker);
+            assertKey(helper, ModNetwork.commandRefusal(server, stranger, id, WorkerCommandPayload.Command.FOLLOW), "message.villagerhuts.not_owner");
+            assertKey(helper, ModNetwork.shareRefusal(server, owner, id, offline.getUUID(), ShareWorkerPayload.Action.SHARE), "message.villagerhuts.not_online");
+            assertKey(helper, ModNetwork.shareRefusal(server, stranger, id, owner.getUUID(), ShareWorkerPayload.Action.SHARE), "message.villagerhuts.not_owner");
+            assertKey(helper, ModNetwork.commandRefusal(server, owner, UUID.randomUUID(), WorkerCommandPayload.Command.STAY),
+                    "message.villagerhuts.assign_worker_missing");
+
+            WorkerRoster.Entry entry = roster.entry(id).orElseThrow();
+            BlockPos pos = worker.blockPosition();
+            List<Component> lines = ModNetwork.locationMessages(entry, worker, true);
+            helper.assertTrue(lines.size() == 2, "said " + lines);
+            assertKey(helper, lines.get(0), "message.villagerhuts.location");
+            String waypoint = lines.get(1).getString();
+            String name = worker.getCustomName().getString();
+            helper.assertTrue(waypoint.startsWith("xaero-waypoint:" + name + ":" + name.substring(0, 1).toUpperCase() + ":"
+                    + pos.getX() + ":" + pos.getY() + ":" + pos.getZ() + ":") && waypoint.endsWith(":false:0:Internal-overworld-waypoints"),
+                    "waypoint line: " + waypoint);
+            List<Component> far = ModNetwork.locationMessages(entry, null, false); // as if far away: where it was last
+            helper.assertTrue(far.size() == 1, "said " + far);
+            Object[] args = ((TranslatableContents) far.get(0).getContents()).getArgs();
+            helper.assertTrue(List.of(args[1], args[2], args[3]).equals(List.of(pos.getX(), pos.getY(), pos.getZ())), "far away, said " + far.get(0).getString());
+            helper.assertTrue(ModNetwork.commandWorker(server, owner, id, WorkerCommandPayload.Command.LOCATE_ON_MAP), "the compass button did nothing");
+            helper.succeed();
+        } finally {
+            server.getPlayerList().remove(owner);
+            server.getPlayerList().remove(stranger);
+        }
+    }
+
+    /**
+     * With Ad Astra, a worker somewhere it can't breathe says so (its status), its owner hears straight away, and giving
+     * it a place there warns that it can't breathe there (it gets the place anyway).
+     */
+    private static void workersWarnWhenTheyCantBreathe(GameTestHelper helper) {
+        MinecraftServer server = helper.getLevel().getServer();
+        ServerPlayer owner = helper.makeMockServerPlayerInLevel();
+        List<WorkerNotices.Sent> sent = WorkerNotices.recordForTests();
+        WorkerEntity worker = hireFarmer(helper, owner);
+        AABB bounds = helper.getBounds();
+        Runnable airless = Space.addRuleForTests(helper.getLevel(), BoundingBox.fromCorners(BlockPos.containing(bounds.minX, bounds.minY, bounds.minZ),
+                BlockPos.containing(bounds.maxX - 1, bounds.maxY - 1, bounds.maxZ - 1)), Space.Danger.NO_OXYGEN);
+        try {
+            assertStatus(helper, worker, "activity.villagerhuts.no_oxygen");
+            assertOutcome(helper, assign(helper, worker, CHEST), true, "message.villagerhuts.assigned_in_danger");
+        } catch (RuntimeException e) {
+            airless.run();
+            server.getPlayerList().remove(owner);
+            throw e;
+        }
+        helper.runAfterDelay(60, () -> {
+            try {
+                List<Component> told = sent.stream().filter(s -> s.player().equals(owner.getUUID())).map(WorkerNotices.Sent::message).toList();
+                helper.assertTrue(told.size() == 1, "owner was told " + told.size() + " times: " + told);
+                Object status = ((TranslatableContents) told.get(0).getContents()).getArgs()[4];
+                assertKey(helper, (Component) status, "activity.villagerhuts.no_oxygen");
+                helper.succeed();
+            } finally {
+                airless.run();
+                server.getPlayerList().remove(owner);
+            }
+        });
+    }
+
+    /** Hiring a farmer with the Farmer item, and upgrading a worker, give the player the workers' advancements. */
+    private static void hiringAndUpgradingGiveAdvancements(GameTestHelper helper) {
+        MinecraftServer server = helper.getLevel().getServer();
+        ServerPlayer player = helper.makeMockServerPlayerInLevel();
+        player.setGameMode(GameType.SURVIVAL); // so the carrots get used up
+        try {
+            assertAdvancement(helper, player, WorkerAdvancements.HIRE_FARMER, false);
+            player.setItemInHand(InteractionHand.MAIN_HAND, new ItemStack(ModItems.FARMER.get()));
+            BlockPos ground = helper.absolutePos(WORKER_SPOT.below());
+            UseOnContext use = new UseOnContext(player, InteractionHand.MAIN_HAND, new BlockHitResult(Vec3.atCenterOf(ground), Direction.UP, ground, false));
+            helper.assertTrue(ModItems.FARMER.get().useOn(use).consumesAction(), "the Farmer item didn't hire anyone");
+            assertAdvancement(helper, player, WorkerAdvancements.HIRE_FARMER, true);
+            assertAdvancement(helper, player, WorkerAdvancements.UPGRADE, false);
+
+            WorkerEntity worker = helper.getLevel().getEntitiesOfClass(WorkerEntity.class, new AABB(ground).inflate(2), w -> w.isOwner(player))
+                    .stream().findFirst().orElseThrow(() -> new GameTestAssertException("no farmer next to the player"));
+            offer(helper, worker, player, ModItems.DIAMOND_CARROT.get(), 1, 2, 0);
+            assertAdvancement(helper, player, WorkerAdvancements.UPGRADE, true);
+            assertAdvancement(helper, player, WorkerAdvancements.MASTER, false);
+            helper.succeed();
+        } finally {
+            server.getPlayerList().remove(player);
+        }
+    }
+
+    /**
+     * A worker's chest can be any storage block in the worker_storage tag that holds items (here a barrel, through
+     * NeoForge's item storage, as modded storage does), and nothing else (a furnace).
+     */
+    private static void anyTaggedStorageWorksAsAChest(GameTestHelper helper) {
+        BlockPos furnace = SPARE_CHEST_SPOT.east();
+        helper.setBlock(SPARE_CHEST_SPOT, Blocks.BARREL);
+        helper.setBlock(furnace, Blocks.FURNACE);
+        helper.assertTrue(WorkerAssigning.isStorage(helper.getLevel(), helper.absolutePos(SPARE_CHEST_SPOT)), "a barrel isn't storage");
+        helper.assertTrue(!WorkerAssigning.isStorage(helper.getLevel(), helper.absolutePos(furnace)), "a furnace counts as storage");
+        WorkerEntity worker = hireFarmer(helper, null);
+        assertOutcome(helper, assign(helper, worker, SPARE_CHEST_SPOT), true, "message.villagerhuts.chest_assigned");
+        Container barrel = container(helper, SPARE_CHEST_SPOT);
+        barrel.setItem(0, new ItemStack(Items.WHEAT_SEEDS, 6));
+        helper.succeedWhen(() -> {
+            helper.assertTrue(countCrops(helper) == 6, "planted " + countCrops(helper) + " of 6 seeds from the barrel");
+            helper.assertTrue(count(barrel, Items.WHEAT_SEEDS) == 0, "seeds left in the barrel");
+        });
     }
 
     // ================================================================ helpers
@@ -1348,6 +1605,18 @@ public final class VillagerHutsTests {
             }
         }
         return found;
+    }
+
+    private static void assertAdvancement(GameTestHelper helper, ServerPlayer player, String name, boolean done) {
+        AdvancementHolder advancement = helper.getLevel().getServer().getAdvancements().get(id("workers/" + name));
+        helper.assertTrue(advancement != null, "no advancement workers/" + name);
+        helper.assertTrue(player.getAdvancements().getOrStartProgress(advancement).isDone() == done,
+                "advancement workers/" + name + (done ? " not given" : " given too early"));
+    }
+
+    private static void assertKey(GameTestHelper helper, @Nullable Component message, String expectedKey) {
+        String key = message == null ? "nothing" : message.getContents() instanceof TranslatableContents translatable ? translatable.getKey() : message.getString();
+        helper.assertTrue(key.equals(expectedKey), "said " + key + ", expected " + expectedKey);
     }
 
     private static void assertStatus(GameTestHelper helper, WorkerEntity worker, String expectedKey) {
