@@ -9,6 +9,7 @@ import java.util.Map;
 import java.util.function.Predicate;
 
 import io.github.nenwam.villagerhuts.Config;
+import io.github.nenwam.villagerhuts.entity.WorkerDrops;
 import io.github.nenwam.villagerhuts.entity.WorkerEntity;
 import io.github.nenwam.villagerhuts.farm.FarmArea;
 import io.github.nenwam.villagerhuts.farm.FarmPlan;
@@ -45,6 +46,7 @@ import org.jspecify.annotations.Nullable;
  * After each look over the farm it tells the worker whether all its work is done (DepositItemsGoal then
  * puts everything away).
  *
+ * Whatever it breaks drops as if anyone had broken it (WorkerDrops: other mods see the drops), into its pockets.
  * Harvests count toward the worker's daily limit (WorkerEntity.takeHarvest): one that would take it over the
  * limit isn't made, and the worker is done for the day (RestGoal) until the next morning.
  *
@@ -347,7 +349,7 @@ public class FarmerWorkGoal extends Goal implements DescribesActivity {
         boolean ripe = crop.isMaxAge(state);
         List<ItemStack> drops = Block.getDrops(state, level, pos, null, this.worker, this.worker.getMainHandItem());
         level.destroyBlock(pos, false, this.worker);
-        drops.forEach(drop -> {
+        WorkerDrops.announce(level, pos, state, this.worker, this.worker.getMainHandItem(), drops).forEach(drop -> {
             if (ripe) {
                 this.worker.recordCollected(drop);
             }
@@ -388,7 +390,7 @@ public class FarmerWorkGoal extends Goal implements DescribesActivity {
                 return false; // worn out: done for today
             }
             level.destroyBlock(pos, false, this.worker);
-            drops.forEach(drop -> {
+            WorkerDrops.announce(level, pos, state, this.worker, this.worker.getMainHandItem(), drops).forEach(drop -> {
                 this.worker.recordCollected(drop);
                 this.worker.storeOrDrop(level, drop);
             });
@@ -453,7 +455,7 @@ public class FarmerWorkGoal extends Goal implements DescribesActivity {
         }
         List<ItemStack> drops = Block.getDrops(state, level, pos, null, this.worker, this.worker.getMainHandItem());
         level.destroyBlock(pos, false, this.worker);
-        drops.forEach(drop -> this.worker.storeOrDrop(level, drop));
+        WorkerDrops.announce(level, pos, state, this.worker, this.worker.getMainHandItem(), drops).forEach(drop -> this.worker.storeOrDrop(level, drop));
     }
 
     private boolean plant(ServerLevel level, BlockPos pos, @Nullable Item preferred) {
