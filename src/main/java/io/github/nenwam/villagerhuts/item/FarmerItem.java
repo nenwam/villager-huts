@@ -4,6 +4,8 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
+import io.github.nenwam.villagerhuts.compat.Space;
+import io.github.nenwam.villagerhuts.entity.WorkerAdvancements;
 import io.github.nenwam.villagerhuts.entity.WorkerEntity;
 import io.github.nenwam.villagerhuts.job.WorkerJob;
 import io.github.nenwam.villagerhuts.registry.ModEntities;
@@ -89,8 +91,14 @@ public class FarmerItem extends Item {
             player.displayClientMessage(Component.translatable("message.villagerhuts.not_allowed"), true);
             return InteractionResult.FAIL;
         }
-        if (spawn.spawn(level, pos, player) == null) {
+        WorkerEntity worker = spawn.spawn(level, pos, player);
+        if (worker == null) {
             return InteractionResult.FAIL;
+        }
+        WorkerAdvancements.award(player, worker.getJob().isFighter() ? WorkerAdvancements.HIRE_FIGHTER : WorkerAdvancements.HIRE_FARMER);
+        Space.Danger danger = Space.dangerFor(worker, level, pos.above());
+        if (player != null && danger != null) { // hired where it can't live (Ad Astra): it's up to you to move it
+            player.displayClientMessage(Component.translatable("message.villagerhuts.hired_in_danger", danger.warning()), false);
         }
         context.getItemInHand().consume(1, player);
         return InteractionResult.SUCCESS;

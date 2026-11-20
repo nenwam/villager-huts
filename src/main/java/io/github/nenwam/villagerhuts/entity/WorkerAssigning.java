@@ -7,6 +7,7 @@ import java.util.UUID;
 
 import io.github.nenwam.villagerhuts.Config;
 import io.github.nenwam.villagerhuts.VillagerHuts;
+import io.github.nenwam.villagerhuts.compat.Space;
 import io.github.nenwam.villagerhuts.farm.FarmArea;
 import io.github.nenwam.villagerhuts.farm.FarmPlan;
 import io.github.nenwam.villagerhuts.network.AssignModePayload;
@@ -18,13 +19,11 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.sounds.SoundEvents;
 import net.minecraft.sounds.SoundSource;
-import net.minecraft.tags.BlockTags;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.InteractionResult;
 import net.minecraft.world.level.BlockGetter;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.BedBlock;
-import net.minecraft.world.level.block.entity.HopperBlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.properties.BedPart;
 import net.minecraft.world.level.levelgen.structure.BoundingBox;
@@ -103,14 +102,14 @@ public final class WorkerAssigning {
                 return new Outcome(false, Component.translatable("message.villagerhuts.bed_taken", name));
             }
             worker.assignBed(head);
-            return new Outcome(true, Component.translatable("message.villagerhuts.bed_assigned"));
+            return warnIfDangerous(level, worker, head.above(), Component.translatable("message.villagerhuts.bed_assigned"));
         }
         if (isStorage(level, clicked)) {
             if (!isWithin(chestAnchor(worker.getWorkArea(), worker.blockPosition()), clicked, maxDistance)) {
                 return new Outcome(false, Component.translatable("message.villagerhuts.chest_too_far", maxDistance));
             }
             worker.assignStorage(clicked);
-            return new Outcome(true, Component.translatable(worker.getJob().isFighter()
+            return warnIfDangerous(level, worker, clicked, Component.translatable(worker.getJob().isFighter()
                     ? "message.villagerhuts.fighter_chest_assigned" : "message.villagerhuts.chest_assigned"));
         }
         if (worker.getJob().isFighter()) {
@@ -120,7 +119,7 @@ public final class WorkerAssigning {
             }
             worker.assignGuardPost(post);
             int size = 2 * Config.FIGHTER_GUARD_RADIUS.getAsInt() + 1;
-            return new Outcome(true, Component.translatable("message.villagerhuts.post_assigned", size, size));
+            return warnIfDangerous(level, worker, post.above(), Component.translatable("message.villagerhuts.post_assigned", size, size));
         }
         FarmArea area = FarmArea.find(level, clicked, Config.FARMER_MAX_FARM_SIZE.getAsInt());
         BoundingBox box = area.box();
@@ -131,7 +130,7 @@ public final class WorkerAssigning {
             return new Outcome(false, Component.translatable("message.villagerhuts.farm_too_far", maxDistance));
         }
         worker.assignFarm(box);
-        return new Outcome(true, Component.translatable("message.villagerhuts.farm_assigned",
+        return warnIfDangerous(level, worker, middle(box), Component.translatable("message.villagerhuts.farm_assigned",
                 box.getXSpan(), box.getZSpan(), area.farmland().size()));
     }
 
@@ -147,18 +146,30 @@ public final class WorkerAssigning {
             return new Outcome(false, Component.translatable("message.villagerhuts.farm_too_far", maxDistance));
         }
         worker.createFarm(box, plan.water());
-        return new Outcome(true, Component.translatable("message.villagerhuts.farm_created",
+        return warnIfDangerous(level, worker, middle(box), Component.translatable("message.villagerhuts.farm_created",
                 box.getXSpan(), box.getZSpan(), plan.till().size(), plan.water().size()));
     }
 
-    /** A block a worker can keep things in: in the worker_storage tag (chests and barrels) and with an inventory. */
-    public static boolean isStorage(Level level, BlockPos pos) {
-        return level.getBlockState(pos).is(ModTags.WORKER_STORAGE) && HopperBlockEntity.getContainerAt(level, pos) != null;
+    // Given a place it can't live (Ad Astra: no air, too hot or too cold), it has it anyway, with a warning.
+    private static Outcome warnIfDangerous(ServerLevel level, WorkerEntity worker, BlockPos at, Component done) {
+        Space.Danger danger = Space.dangerFor(worker, level, at);
+        return new Outcome(true, danger == null ? done : Component.translatable("message.villagerhuts.assigned_in_danger", done, danger.warning()));
     }
 
+    // The middle of a farm, a block above the ground: where a farmer stands to work it.
+    private static BlockPos middle(BoundingBox box) {
+        return new BlockPos((box.minX() + box.maxX()) / 2, box.minY(), (box.minZ() + box.maxZ()) / 2).above();
+    }
+
+    /** A block a worker can keep things in: in the worker_storage tag (chests, barrels, drawers...) and with item storage. */
+    public static boolean isStorage(Level level, BlockPos pos) {
+        return WorkerStorage.at(level, pos) != null;
+    }
+
+    /** A bed a worker can sleep in: in the worker_beds tag (beds, Comforts' sleeping bags and hammocks), and a bed block. */
     public static boolean isBed(BlockGetter level, BlockPos pos) {
         BlockState state = level.getBlockState(pos);
-        return state.is(BlockTags.BEDS) && state.getBlock() instanceof BedBlock;
+        return state.is(ModTags.WORKER_BEDS) && state.getBlock() instanceof BedBlock;
     }
 
     /** The head end of the bed at pos (where a sleeper's head goes, and where beds are tracked). */

@@ -6,11 +6,11 @@ import java.util.Map;
 import io.github.nenwam.villagerhuts.entity.WorkerEntity;
 import io.github.nenwam.villagerhuts.job.Weapons;
 import net.minecraft.network.chat.Component;
-import net.minecraft.world.Container;
 import net.minecraft.world.SimpleContainer;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
-import net.minecraft.world.level.block.entity.HopperBlockEntity;
+import net.neoforged.neoforge.items.ItemHandlerHelper;
+import net.neoforged.neoforge.items.IItemHandler;
 
 /**
  * Any job: carry what the worker has to its chest.
@@ -46,13 +46,13 @@ public class DepositItemsGoal extends StorageTripGoal {
     }
 
     @Override
-    protected boolean isUseful(Container container) {
+    protected boolean isUseful(IItemHandler storage) {
         return true;
     }
 
     @Override
-    protected int useStorage(Container container) {
-        return this.storeItems(container, this.worker.isWorkDone()) ? RETRY_TICKS : FULL_RETRY_TICKS;
+    protected int useStorage(IItemHandler storage) {
+        return this.storeItems(storage, this.worker.isWorkDone()) ? RETRY_TICKS : FULL_RETRY_TICKS;
     }
 
     @Override
@@ -70,8 +70,8 @@ public class DepositItemsGoal extends StorageTripGoal {
         return false;
     }
 
-    /** Moves everything (or everything but the seeds and bone meal it keeps) into the container. Returns true if anything was stored. */
-    private boolean storeItems(Container container, boolean everything) {
+    /** Moves everything (or everything but the seeds and bone meal it keeps) into the storage. Returns true if anything was stored. */
+    private boolean storeItems(IItemHandler storage, boolean everything) {
         SimpleContainer inventory = this.worker.getInventory();
         Map<Item, Integer> kept = new HashMap<>();
         boolean storedAny = false;
@@ -84,7 +84,7 @@ public class DepositItemsGoal extends StorageTripGoal {
             if (toStore <= 0) {
                 continue;
             }
-            ItemStack rest = HopperBlockEntity.addItem(null, container, stack.split(toStore), null);
+            ItemStack rest = ItemHandlerHelper.insertItemStacked(storage, stack.split(toStore), false);
             if (rest.getCount() < toStore) {
                 storedAny = true;
             }
@@ -101,7 +101,8 @@ public class DepositItemsGoal extends StorageTripGoal {
     }
 
     /**
-     * How much of this stack to put away. Unless it's everything: keep up to KEEP_SEEDS of each seed, and all bone meal.
+     * How much of this stack to put away. Unless it's everything: keep up to KEEP_SEEDS of each seed it can plant now
+     * (seeds out of season go in the chest), and all bone meal.
      * Fighters always keep their ammo and up to KEEP_FOOD of each food.
      */
     private int amountToStore(ItemStack stack, Map<Item, Integer> kept, boolean everything) {
@@ -117,7 +118,7 @@ public class DepositItemsGoal extends StorageTripGoal {
         if (WorkerEntity.isBoneMeal(stack)) {
             return 0;
         }
-        if (!WorkerEntity.isPlantableSeed(stack)) {
+        if (!this.worker.canPlantNow(stack)) {
             return stack.getCount();
         }
         return stack.getCount() - keep(stack, kept, KEEP_SEEDS);

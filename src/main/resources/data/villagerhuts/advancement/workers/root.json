@@ -1,0 +1,33 @@
+{
+  "display": {
+    "icon": {
+      "id": "villagerhuts:farmer"
+    },
+    "title": {
+      "translate": "advancements.villagerhuts.root.title"
+    },
+    "description": {
+      "translate": "advancements.villagerhuts.root.description"
+    },
+    "frame": "task",
+    "show_toast": false,
+    "announce_to_chat": false,
+    "hidden": false,
+    "background": "minecraft:textures/gui/advancements/backgrounds/husbandry.png"
+  },
+  "criteria": {
+    "has_worker_item": {
+      "trigger": "minecraft:inventory_changed",
+      "conditions": {
+        "items": [
+          {
+            "items": [
+              "villagerhuts:farmer",
+              "villagerhuts:fighter"
+            ]
+          }
+        ]
+      }
+    }
+  }
+}

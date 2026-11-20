@@ -2,6 +2,7 @@
   "values": [
     "#c:tools/melee_weapon",
     "#minecraft:swords",
-    "#minecraft:axes"
+    "#minecraft:axes",
+    { "id": "#c:tools/knife", "required": false }
   ]
 }

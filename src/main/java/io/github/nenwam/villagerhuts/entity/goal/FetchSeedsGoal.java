@@ -1,13 +1,15 @@
 package io.github.nenwam.villagerhuts.entity.goal;
 
 import io.github.nenwam.villagerhuts.entity.WorkerEntity;
+import io.github.nenwam.villagerhuts.entity.WorkerStorage;
 import io.github.nenwam.villagerhuts.job.WorkerJob;
 import net.minecraft.network.chat.Component;
-import net.minecraft.world.Container;
+import net.neoforged.neoforge.items.IItemHandler;
 
 /**
  * Farmer: out of seeds, with empty farmland to plant and nothing ripe to harvest? Walk to its
- * chest and take seeds (up to a stack, and no more than there are empty spots).
+ * chest and take seeds (up to a stack, and no more than there are empty spots): only seeds it can plant
+ * now, so none out of season (with Serene Seasons).
  * This is how a new farm gets started: put seeds in the farmer's chest.
  */
 public class FetchSeedsGoal extends StorageTripGoal {
@@ -34,18 +36,13 @@ public class FetchSeedsGoal extends StorageTripGoal {
     }
 
     @Override
-    protected boolean isUseful(Container container) {
-        for (int i = 0; i < container.getContainerSize(); i++) {
-            if (WorkerEntity.isPlantableSeed(container.getItem(i))) {
-                return true;
-            }
-        }
-        return false;
+    protected boolean isUseful(IItemHandler storage) {
+        return WorkerStorage.has(storage, this.worker::canPlantNow);
     }
 
     @Override
-    protected int useStorage(Container container) {
-        int taken = this.take(container, WorkerEntity::isPlantableSeed, Math.min(MAX_SEEDS, this.worker.getEmptyFarmland()));
+    protected int useStorage(IItemHandler storage) {
+        int taken = this.take(storage, this.worker::canPlantNow, Math.min(MAX_SEEDS, this.worker.getEmptyFarmland()));
         return taken > 0 ? 20 : CHECK_TICKS;
     }
 

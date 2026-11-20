@@ -9,17 +9,22 @@ import java.util.UUID;
 import com.mojang.blaze3d.platform.InputConstants;
 
 import io.github.nenwam.villagerhuts.VillagerHuts;
+import io.github.nenwam.villagerhuts.network.OrderAllPayload;
+import io.github.nenwam.villagerhuts.network.PanelNoticePayload;
 import io.github.nenwam.villagerhuts.network.RenameWorkerPayload;
 import io.github.nenwam.villagerhuts.network.RequestWorkersPayload;
 import io.github.nenwam.villagerhuts.network.ShareWorkerPayload;
 import io.github.nenwam.villagerhuts.network.WorkerCommandPayload;
 import io.github.nenwam.villagerhuts.network.WorkerInfo;
 import io.github.nenwam.villagerhuts.network.WorkerListPayload;
+import net.minecraft.Util;
 import net.minecraft.client.KeyMapping;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.screens.inventory.InventoryScreen;
+import net.minecraft.network.chat.Component;
 import net.neoforged.api.distmarker.Dist;
 import net.neoforged.bus.api.SubscribeEvent;
+import net.neoforged.fml.ModList;
 import net.neoforged.fml.common.EventBusSubscriber;
 import net.neoforged.neoforge.client.event.ClientPlayerNetworkEvent;
 import net.neoforged.neoforge.client.event.ClientTickEvent;
@@ -28,8 +33,8 @@ import net.neoforged.neoforge.network.PacketDistributor;
 import org.jspecify.annotations.Nullable;
 
 /**
- * The client's copy of your worker list (from the server: your workers, then the ones shared with you),
- * which areas are highlighted, worker colors, and the "open worker management" key.
+ * The client's copy of your worker list (from the server: your workers, then the ones shared with you or your party),
+ * which areas are highlighted, worker colors, the panel's latest notice, and the "open worker management" key.
  */
 @EventBusSubscriber(modid = VillagerHuts.MODID, value = Dist.CLIENT)
 public final class ClientWorkers {
@@ -46,12 +51,15 @@ public final class ClientWorkers {
     };
     private static final int PANEL_REFRESH_TICKS = 20;
     private static final int HIGHLIGHT_REFRESH_TICKS = 100;
+    private static final long NOTICE_MILLIS = 5000;
 
     private static List<WorkerInfo> workers = List.of();
     private static final Set<UUID> highlighted = new HashSet<>();
     private static boolean showAll;
     private static @Nullable Runnable listener;
     private static int ticks;
+    private static @Nullable Component notice;
+    private static long noticeUntil;
 
     public static List<WorkerInfo> workers() {
         return workers;
@@ -78,6 +86,30 @@ public final class ClientWorkers {
     /** Asks the server to share a worker with a player, stop sharing it, or give it to them. It replies with a new list. */
     public static void share(UUID worker, UUID player, ShareWorkerPayload.Action action) {
         PacketDistributor.sendToServer(new ShareWorkerPayload(worker, player, action));
+    }
+
+    /** Asks the server to give all your own workers this order (WORK, FOLLOW or STAY). It replies with what happened. */
+    public static void orderAll(WorkerCommandPayload.Command order) {
+        PacketDistributor.sendToServer(new OrderAllPayload(order));
+    }
+
+    /** Asks the server where a worker is (in chat), with a map marker if Xaero's minimap or world map is installed. */
+    public static void locate(UUID worker) {
+        command(worker, hasXaero() ? WorkerCommandPayload.Command.LOCATE_ON_MAP : WorkerCommandPayload.Command.LOCATE);
+    }
+
+    public static boolean hasXaero() {
+        return ModList.get().isLoaded("xaerominimap") || ModList.get().isLoaded("xaeroworldmap");
+    }
+
+    /** The panel's latest notice (why a button did nothing, or what it did), for a few seconds after it came; else null. */
+    public static @Nullable Component notice() {
+        return notice != null && Util.getMillis() < noticeUntil ? notice : null;
+    }
+
+    public static void receiveNotice(PanelNoticePayload payload) {
+        notice = payload.message();
+        noticeUntil = Util.getMillis() + NOTICE_MILLIS;
     }
 
     /** Called with each new list (the worker panel uses this to refresh). */
@@ -173,6 +205,7 @@ public final class ClientWorkers {
         workers = List.of();
         highlighted.clear();
         showAll = false;
+        notice = null;
     }
 
     private ClientWorkers() {}

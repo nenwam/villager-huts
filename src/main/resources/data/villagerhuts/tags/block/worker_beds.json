@@ -1,0 +1,7 @@
+{
+  "values": [
+    "#minecraft:beds",
+    { "id": "#comforts:sleeping_bags", "required": false },
+    { "id": "#comforts:hammocks", "required": false }
+  ]
+}

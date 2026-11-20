@@ -28,7 +28,14 @@ sourceSets.main.resources {
 
 repositories {
     mavenCentral()
-    // Add here additional repositories if required by some of the dependencies below.
+    // Mods the workers work with when they're installed (compile time only: see the compat package).
+    maven { url = 'https://maven.blamejared.com' }               // JEI
+    maven { url = 'https://maven.terraformersmc.com/releases' }  // EMI
+    maven { url = 'https://maven.ftb.dev/releases' }             // FTB Teams
+    exclusiveContent {                                             // Jade
+        forRepository { maven { url = 'https://api.modrinth.com/maven' } }
+        filter { includeGroup 'maven.modrinth' }
+    }
 }
 
 base {
@@ -120,6 +127,12 @@ configurations {
 dependencies {
     // @Nullable on types (compile time only; Minecraft 26.x ships it, 1.21.1 doesn't).
     compileOnly 'org.jspecify:jspecify:1.0.0'
+    // Optional mods (the compat package), at the Seed to Stars pack's versions. Compile time only: never shipped or required.
+    compileOnly 'mezz.jei:jei-1.21.1-common-api:19.70.0.468'
+    compileOnly 'mezz.jei:jei-1.21.1-neoforge-api:19.70.0.468'
+    compileOnly 'dev.emi:emi-neoforge:1.1.24+1.21.1:api'
+    compileOnly('dev.ftb.mods:ftb-teams-neoforge:2101.1.11') { transitive = false }
+    compileOnly('maven.modrinth:jade:15.10.6+neoforge') { transitive = false }
     // Example optional mod dependency with JEI
     // The JEI API is declared for compile time use, while the full JEI artifact is used at runtime
     // compileOnly "mezz.jei:jei-${mc_version}-common-api:${jei_version}"

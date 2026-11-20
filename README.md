@@ -56,8 +56,10 @@ Builds with Java 21 (Gradle downloads it if needed).
   much again.) Fighters also swing and shoot faster with each level, and rangers' shots go straighter.
 - **Worker panel:** the **Workers** button in the survival inventory opens a panel beside it. It has no key by
   default (every letter is taken in the Seed to Stars pack); bind **Open Worker Panel** in Options → Controls to open
-  the inventory with the panel, also in creative. It lists all your workers, then the ones shared with you: live
-  status, days worked, what they're carrying and have collected; click a worker's book for its details page
+  the inventory with the panel, also in creative. It lists all your workers, then the ones shared with you (or your
+  party's): live status, days worked, what they're carrying and have collected. The three buttons beside **Show all**
+  give all your own workers an order at once: **back to work**, **follow me** or **stay** (the ones near enough to
+  hear: it says how many, and how many were too far away). Click a worker's book for its details page
   (level, today's harvest, what the next level costs, farm, chest and bed; for a fighter, its health and damage,
   weapon, ammo, post, and a grid of who it has defeated; scroll if it doesn't all fit).
   **Show** highlights a worker's farm (or guard area), chest and bed in its color, with its number above each and
@@ -71,9 +73,18 @@ Builds with Java 21 (Gradle downloads it if needed).
     starts it farming again with what's in the chest. Clearing doesn't count toward the day's harvest;
   - on the right, its **tool** takes it back (a farmer is unemployed until you right-click it with a hoe, a fighter
     unarmed until you hand it a weapon);
+  - the **compass** says where it is, in chat, even when it's far away; with Xaero's minimap or world map installed,
+    also a waypoint you can click to add as a map marker;
   - the **player head** opens its sharing page (below).
-  The orders, field and tool buttons only work while the worker is near enough to be loaded. In a narrow panel the
-  buttons on the right move to a row of their own. A ranger's ammo shows in the list, and near the top of its page.
+  The orders, field and tool buttons only work while the worker is near enough to be loaded: otherwise they're greyed
+  out, and their tooltip says why. When the server turns a button down (it isn't yours, the player you're sharing with
+  just left...), a notice at the bottom of the panel says why, for a few seconds. In a narrow panel the buttons on the
+  right move to a row of their own. A ranger's ammo shows in the list, and near the top of its page.
+- **Notices:** a worker tells you in chat when it needs you: its chest is full, it's out of seeds (or has only seeds
+  that won't grow this season) or out of arrows, or it can't reach its farm or chest. Once the problem has lasted a few
+  seconds, and not again until it's been sorted out for a minute (at most one every two minutes per worker). Players
+  it's shared with hear too. When a worker dies, you hear how and where (your party too). The `notifyOwners` setting
+  turns this off.
 - **Multiplayer:** a worker belongs to the player who hired it. Nobody else can give it orders or work, rename
   it, use a lead or name tag on it, or hurt it (the `protectWorkers` setting; turn it off for PvP). On its sharing
   page its owner can **share** it with players who are online (**+**), **stop sharing** (**×**), or **give it**
@@ -81,6 +92,9 @@ Builds with Java 21 (Gradle downloads it if needed).
   shared with can give it orders and work (**Follow me** follows whoever pressed it), rename and upgrade it, and
   can stop using it (**×** on their own row); only the owner can take its hoe, share it or give it away. Sharing
   works even when the worker is far away, and the other player is told.
+  - **Parties (FTB Teams):** everyone in a party can use each other's workers, as if they were shared with them: no
+    need to share them one by one. The sharing page says so. Only a worker's owner can still take its tool, share it or
+    give it away. The `shareWithTeam` setting turns this off.
 - **Fighter:** craft one from a **grindstone**, a **target** and a **golden carrot** (any arrangement); picking up a
   grindstone or a golden carrot unlocks it. Use it on the ground to hire a fighter: a Sikh warrior (a Nihang in a
   blue or saffron chola with a dumalla and its steel chakkar, a Singh in a kesri dastar, or a Kaur), with a Sikh
@@ -111,7 +125,23 @@ Builds with Java 21 (Gradle downloads it if needed).
     noon. Anything coming near wakes them.
 - **Other mods:** farmers also plant Pam's HarvestCraft seeds and Farmer's Delight cabbages and onions, when those mods
   are installed (normal crops on farmland only: not rice, tomatoes or fruit trees). Workers are tagged
-  `c:capturing_not_supported`, so Carry On (and other mods that pick up mobs) can't carry them off.
+  `c:capturing_not_supported`, so Carry On (and other mods that pick up mobs) can't carry them off. With **Serene
+  Seasons**, farmers plant only what grows on their farm this season (by Serene Seasons' own rules, greenhouses
+  included): seeds out of season stay in the chest until their season comes round. **EMI** and **JEI** keep their item
+  lists out of the worker panel's way. **FTB Teams** and **Xaero's minimap** are above (parties, the compass). Also:
+  - **Storage:** a worker's chest can be any chest or barrel with item storage (Sophisticated Storage's too), Storage
+    Drawers' drawers and controller, or Tom's Simple Storage's inventory connector and interface (the
+    `villagerhuts:worker_storage` tag).
+  - **Beds:** Comforts' sleeping bags and hammocks work as a worker's bed (the `villagerhuts:worker_beds` tag).
+  - **Weapons and friends:** Farmer's Delight knives make a warrior; fighters treat Guard Villagers' guards as friends
+    (the `villagerhuts:friends` entity tag).
+  - **Jade:** looking at a worker shows its job and level, its owner, and what it's doing.
+  - **Ad Astra:** workers breathe like any other mob: on a planet without air they need an oxygen distributor's sealed
+    area, and they get hurt where it's too hot or too cold. A worker in danger says so (its status) and tells you
+    straight away; giving one a place to work, a chest or a bed where it couldn't live (or hiring one there) warns you.
+  - **Advancements:** their own tab (hire a farmer, hire a fighter, an upgrade, a Master), which quest mods can use
+    as tasks (`villagerhuts:workers/...`).
+  When the server starts, its log says which of these are switched on.
 - **Seeds and bone meal:** farmers start with no seeds. Put seeds (wheat seeds, carrots, potatoes, beetroot
   seeds...) in their chest; the farmer fetches them and plants the empty farmland. Put bone meal in the chest
   and they use it on their growing crops.
@@ -130,7 +160,10 @@ and chest (and refusing spots with no farmland or too far away), new farms plann
 fetched and planted exactly, bone meal used, harvests stored, leftovers put away once work is done, pitcher pods
 ignored, the chest broken (with full pockets, and mid-trip) and a new one assigned, the farm fenced off, the chest
 walled in, staying put, a worker dying, workers renamed and the hoe taken back from the panel, zombies hunting
-workers, looks and names, clearing a field and starting it again, sharing (and giving away) a worker, strangers kept from using or hurting it, upgrades
+workers, looks and names, clearing a field and starting it again, sharing (and giving away) a worker, parties using each
+other's workers, strangers kept from using or hurting it, refused buttons saying why, the compass, ordering all workers at
+once, owners told when a worker needs them or dies, seeds out of season left in the chest, workers warning when they
+can't breathe, the advancements, any tagged storage working as a chest, upgrades
 (and the recipes for diamond carrots, the Farmer and the Fighter), fighters (Sikh looks and names, every weapon in
 the game sorted into melee and ranged, swapping weapons, warriors defending their post, rangers shooting bows,
 crossbows and tridents and fetching arrows, eating to heal, leaving friends alone and creepers to rangers,

@@ -3,6 +3,7 @@ package io.github.nenwam.villagerhuts.entity;
 import java.util.Iterator;
 
 import io.github.nenwam.villagerhuts.VillagerHuts;
+import io.github.nenwam.villagerhuts.registry.ModTags;
 import net.minecraft.world.damagesource.DamageSource;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
@@ -36,10 +37,13 @@ import org.jspecify.annotations.Nullable;
 @EventBusSubscriber(modid = VillagerHuts.MODID)
 public final class WorkerCombat {
 
-    /** Never fought or hurt by a fighter: players, workers, villagers, golems, and anyone's pets. */
+    /**
+     * Never fought or hurt by a fighter: players, workers, villagers, golems, anyone's pets, and mobs in the friends tag
+     * (Guard Villagers' guards).
+     */
     public static boolean isFriend(WorkerEntity fighter, Entity entity) {
         if (entity == fighter || entity instanceof Player || entity instanceof WorkerEntity || entity instanceof AbstractVillager
-                || entity instanceof AbstractGolem) {
+                || entity instanceof AbstractGolem || entity.getType().is(ModTags.FRIENDS)) {
             return true;
         }
         if (entity instanceof OwnableEntity pet && pet.getOwnerUUID() != null) {

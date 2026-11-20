@@ -44,12 +44,13 @@ import net.minecraft.world.level.levelgen.structure.BoundingBox;
  * @param ammo           a ranger's ammo in its pockets (-1 if it isn't a ranger with a weapon that needs ammo, or is far away)
  * @param defeated       entity type id -> how many of them a fighter has defeated
  * @param field          a farmer's field: farming, clearing or cleared (WorkerEntity.Field id)
+ * @param party          the name of its owner's party (FTB Teams), whose players can all use it; empty if none
  */
 public record WorkerInfo(UUID id, int number, Optional<String> customName, String job, String order, Component status, boolean loaded,
                          long employedTicks, ResourceKey<Level> dimension, Optional<BoundingBox> farm, Optional<BlockPos> storage,
                          Optional<BlockPos> bed, Map<ResourceLocation, Integer> collected, int carried, PlayerRef owner, boolean yours,
                          List<PlayerRef> shared, int rank, int harvestedToday, int dailyLimit, ItemStack tool, int health,
-                         int maxHealth, int ammo, Map<ResourceLocation, Integer> defeated, String field) {
+                         int maxHealth, int ammo, Map<ResourceLocation, Integer> defeated, String field, Optional<String> party) {
 
     /** A player, by id and name (the name as the server last knew it). */
     public record PlayerRef(UUID id, String name) {
@@ -96,6 +97,7 @@ public record WorkerInfo(UUID id, int number, Optional<String> customName, Strin
         buf.writeVarInt(info.ammo);
         COLLECTED.encode(buf, info.defeated);
         ByteBufCodecs.STRING_UTF8.encode(buf, info.field);
+        NAME.encode(buf, info.party);
     }
 
     private static WorkerInfo read(RegistryFriendlyByteBuf buf) {
@@ -125,6 +127,7 @@ public record WorkerInfo(UUID id, int number, Optional<String> customName, Strin
                 buf.readVarInt(),
                 buf.readVarInt(),
                 COLLECTED.decode(buf),
-                ByteBufCodecs.STRING_UTF8.decode(buf));
+                ByteBufCodecs.STRING_UTF8.decode(buf),
+                NAME.decode(buf));
     }
 }

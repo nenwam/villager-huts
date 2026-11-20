@@ -2,6 +2,7 @@ package io.github.nenwam.villagerhuts.client;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 import com.mojang.blaze3d.platform.InputConstants;
@@ -23,6 +24,7 @@ import net.minecraft.client.gui.components.Tooltip;
 import net.minecraft.client.gui.components.WidgetSprites;
 import net.minecraft.client.gui.narration.NarrationElementOutput;
 import net.minecraft.client.gui.navigation.ScreenRectangle;
+import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.gui.screens.inventory.InventoryScreen;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
@@ -41,14 +43,17 @@ import org.jspecify.annotations.Nullable;
  * The worker management panel, attached to the side of the survival inventory (right side,
  * or left if there's no room). Opened and closed with the Workers button; stays open between
  * inventory openings. The list page shows your workers with live status, days worked and what
- * they've collected, plus buttons to highlight their farms and chests in the world; each worker's book
- * button opens its details page (back arrow returns to the list). Workers shared with you are listed too,
- * after your own. On the details page:
+ * they've collected, plus buttons to highlight their farms and chests in the world, and to give all your own
+ * workers an order at once (work, follow you, stay); each worker's book button opens its details page (back arrow
+ * returns to the list). Workers shared with you (or your party's) are listed too, after your own. On the details page:
  *  - the name tag button renames the worker: type a name, then Enter (or click the name tag again) saves
  *    and Escape cancels;
  *  - beside its slot, its orders (work, follow you, stay put; the one it's on is in its color), and on the
- *    right a button to take its tool back (owner only). These only work while the worker is near enough to be loaded;
+ *    right a button to take its tool back (owner only). These only work while the worker is near enough to be loaded:
+ *    otherwise they're greyed out, and their tooltips say why;
+ *  - the compass says where it is in chat (with a map marker, with Xaero's minimap), near or far;
  *  - the player-head button opens its sharing page (see WorkerSharing); the back arrow returns to the details.
+ * When the server turns a button down (or reports what it did), a notice shows at the bottom of the panel for a few seconds.
  */
 @EventBusSubscriber(modid = VillagerHuts.MODID, value = Dist.CLIENT)
 public final class WorkerPanel {
@@ -59,6 +64,9 @@ public final class WorkerPanel {
     private static final int HEADER = 24;
     private static final int PADDING = 7; // same inner margin as the inventory
     private static final int SHOW_ALL_COLOR = 0xFFE0B040;
+    private static final int NOTICE_FILL = 0xF0303030;
+    private static final int NOTICE_BORDER = 0xFF000000;
+    private static final int NOTICE_TEXT = 0xFFFFE080;
 
     private static final WidgetSprites BACK_SPRITES = new WidgetSprites(
             ResourceLocation.withDefaultNamespace("recipe_book/page_backward"), ResourceLocation.withDefaultNamespace("recipe_book/page_backward_highlighted"));
@@ -72,9 +80,15 @@ public final class WorkerPanel {
     private static @Nullable String fieldButton;     // which way the field button is set up (the field it was set for)
     private static @Nullable Widgets current;
 
-    private record Widgets(InventoryScreen screen, WorkerList list, Button showAll, WorkerDetails details, Button back,
-                           Button rename, EditBox nameBox, Button detailToggle, List<Button> orders, Button field, Button takeTool,
+    private record Widgets(InventoryScreen screen, WorkerList list, Button showAll, List<Button> orderAll, WorkerDetails details, Button back,
+                           Button rename, EditBox nameBox, Button detailToggle, List<Button> orders, Button field, Button locate, Button takeTool,
                            Button sharing, WorkerSharing sharingList, PanelArea area) {}
+
+    /** Where the panel is on this screen, while it's showing (so EMI and JEI keep their item lists out of the way). */
+    public static Optional<ScreenRectangle> panelArea(Screen screen) {
+        Widgets widgets = current;
+        return open && widgets != null && widgets.screen() == screen ? Optional.of(widgets.area().getRectangle()) : Optional.empty();
+    }
 
     /** Opens a worker's details page (from its book button). */
     public static void showDetails(@Nullable UUID worker) {
@@ -114,6 +128,10 @@ public final class WorkerPanel {
         WorkerList list = new WorkerList(Minecraft.getInstance());
         Button showAll = new SlotToggle(button -> ClientWorkers.toggleShowAll(), ClientWorkers::isShowingAll, () -> SHOW_ALL_COLOR,
                 Component.translatable("gui.villagerhuts.panel.show_all"), Component.translatable("gui.villagerhuts.panel.hide_all"));
+        List<Button> orderAll = List.of(
+                orderAllButton(Items.WHEAT, "gui.villagerhuts.panel.all_work", WorkerCommandPayload.Command.WORK),
+                orderAllButton(Items.LEAD, "gui.villagerhuts.panel.all_follow", WorkerCommandPayload.Command.FOLLOW),
+                orderAllButton(Items.ARMOR_STAND, "gui.villagerhuts.panel.all_stay", WorkerCommandPayload.Command.STAY));
         WorkerDetails details = new WorkerDetails();
         Button back = new ImageButton(12, 17, BACK_SPRITES, button -> back(), Component.translatable("gui.villagerhuts.panel.back"));
         back.setTooltip(Tooltip.create(Component.translatable("gui.villagerhuts.panel.back")));
@@ -137,6 +155,9 @@ public final class WorkerPanel {
                         ? WorkerCommandPayload.Command.CLEAR_FIELD : WorkerCommandPayload.Command.START_FARMING);
             }
         });
+        Button locate = new SlotButton(new ItemStack(Items.COMPASS),
+                Component.translatable(ClientWorkers.hasXaero() ? "gui.villagerhuts.panel.locate_on_map" : "gui.villagerhuts.panel.locate"),
+                button -> { if (selected != null) ClientWorkers.locate(selected); });
         Button takeTool = new SlotButton(new ItemStack(Items.IRON_HOE), Component.translatable("gui.villagerhuts.panel.take_tool"),
                 button -> { if (selected != null) ClientWorkers.command(selected, WorkerCommandPayload.Command.TAKE_TOOL); });
         Button sharing = new SlotButton(new ItemStack(Items.PLAYER_HEAD), Component.translatable("gui.villagerhuts.panel.sharing"),
@@ -145,6 +166,7 @@ public final class WorkerPanel {
         PanelArea area = new PanelArea();
         event.addListener(list);
         event.addListener(showAll);
+        orderAll.forEach(event::addListener);
         event.addListener(details);
         event.addListener(back);
         event.addListener(rename);
@@ -152,12 +174,13 @@ public final class WorkerPanel {
         event.addListener(detailToggle);
         orders.forEach(event::addListener);
         event.addListener(field);
+        event.addListener(locate);
         event.addListener(takeTool);
         event.addListener(sharing);
         event.addListener(sharingList);
         event.addListener(area); // last: only gets clicks the list and buttons didn't use
-        Widgets widgets = new Widgets(screen, list, showAll, details, back, rename, nameBox, detailToggle, orders, field, takeTool,
-                sharing, sharingList, area);
+        Widgets widgets = new Widgets(screen, list, showAll, orderAll, details, back, rename, nameBox, detailToggle, orders, field, locate,
+                takeTool, sharing, sharingList, area);
         current = widgets;
         renaming = null;
         focusNameBox = false;
@@ -211,7 +234,9 @@ public final class WorkerPanel {
             }
             return;
         }
-        graphics.drawString(font, Component.translatable("gui.villagerhuts.panel.title"), panel.left() + 8, panel.top() + 9, NativeStyle.LABEL, false);
+        int titleRight = widgets.orderAll().getFirst().getX() - 2;
+        graphics.drawString(font, WorkerList.fit(font, Component.translatable("gui.villagerhuts.panel.title"), titleRight - panel.left() - 8),
+                panel.left() + 8, panel.top() + 9, NativeStyle.LABEL, false);
         if (ClientWorkers.workers().isEmpty()) {
             int y = panel.top() + HEADER + 2;
             for (FormattedCharSequence line : font.split(Component.translatable("gui.villagerhuts.workers.empty"), panel.width() - 2 * PADDING)) {
@@ -219,6 +244,32 @@ public final class WorkerPanel {
                 y += NativeStyle.LINE;
             }
         }
+    }
+
+    // The latest notice (why a button did nothing, or what it did), in a box at the bottom of the panel, over everything.
+    @SubscribeEvent
+    static void onRenderNotice(ScreenEvent.Render.Post event) {
+        Widgets widgets = current;
+        Component notice = ClientWorkers.notice();
+        if (!open || widgets == null || notice == null || event.getScreen() != widgets.screen()) {
+            return;
+        }
+        GuiGraphics graphics = event.getGuiGraphics();
+        Font font = Minecraft.getInstance().font;
+        ScreenRectangle panel = widgets.area().getRectangle();
+        List<FormattedCharSequence> lines = font.split(notice, panel.width() - 2 * PADDING - 6);
+        lines = lines.subList(0, Math.min(3, lines.size()));
+        int boxTop = panel.bottom() - PADDING - lines.size() * NativeStyle.LINE - 6;
+        graphics.pose().pushPose();
+        graphics.pose().translate(0, 0, 400); // in front of item icons, like a tooltip
+        graphics.fill(panel.left() + PADDING - 1, boxTop - 1, panel.right() - PADDING + 1, panel.bottom() - PADDING + 1, NOTICE_BORDER);
+        graphics.fill(panel.left() + PADDING, boxTop, panel.right() - PADDING, panel.bottom() - PADDING, NOTICE_FILL);
+        int y = boxTop + 3;
+        for (FormattedCharSequence line : lines) {
+            graphics.drawString(font, line, panel.left() + PADDING + 3, y, NOTICE_TEXT, false);
+            y += NativeStyle.LINE;
+        }
+        graphics.pose().popPose();
     }
 
     // Holding an item and releasing the mouse outside the inventory normally drops the item.
@@ -329,6 +380,9 @@ public final class WorkerPanel {
             widgets.sharingList().updateSizeAndPosition(width - 2 * PADDING, height - HEADER - PADDING, x + PADDING, top + HEADER);
         }
         widgets.showAll().setPosition(x + width - PADDING - 18, top + 4);
+        for (int i = 0; i < widgets.orderAll().size(); i++) { // left of Show all
+            widgets.orderAll().get(i).setPosition(x + width - PADDING - 18 - 20 * (widgets.orderAll().size() - i), top + 4);
+        }
         widgets.detailToggle().setPosition(x + width - PADDING - 18, top + 4);
         widgets.rename().setPosition(x + width - PADDING - 38, top + 4);
         widgets.back().setPosition(x + PADDING, top + 4);
@@ -353,6 +407,7 @@ public final class WorkerPanel {
         }
         widgets.list().visible = listPage;
         widgets.showAll().visible = listPage;
+        widgets.orderAll().forEach(button -> button.visible = listPage);
         widgets.details().visible = detailsPage;
         widgets.back().visible = detailsPage || sharingShown;
         widgets.rename().visible = detailsPage;
@@ -360,18 +415,19 @@ public final class WorkerPanel {
         widgets.detailToggle().visible = detailsPage;
         WorkerInfo shown = widgets.details().info();
         widgets.detailToggle().active = detailsPage && shown != null && (shown.farm().isPresent() || shown.storage().isPresent() || shown.bed().isPresent());
-        boolean nearby = shown != null && shown.loaded();
+        Component tooFar = shown != null && !shown.loaded() ? Component.translatable("gui.villagerhuts.panel.too_far") : null;
         for (Button order : widgets.orders()) {
             order.visible = detailsPage;
-            order.active = nearby;
+            unavailable(order, tooFar);
         }
         if (shown != null) {
             setUpButtons(widgets, shown);
         }
         widgets.takeTool().visible = detailsPage && shown != null && shown.yours() && WorkerJob.byId(shown.job()).hasTool();
-        widgets.takeTool().active = nearby;
+        unavailable(widgets.takeTool(), tooFar);
         widgets.field().visible = detailsPage && shown != null && shown.job().equals(WorkerJob.FARMER.id()) && shown.farm().isPresent();
-        widgets.field().active = nearby;
+        unavailable(widgets.field(), tooFar);
+        widgets.locate().visible = detailsPage;
         widgets.sharing().visible = detailsPage;
         placeRightButtons(widgets, x, width, top);
         widgets.sharingList().visible = sharingShown;
@@ -381,11 +437,17 @@ public final class WorkerPanel {
         widgets.area().visible = open;
     }
 
-    // The details page's buttons on the right (field, sharing, tool): beside the orders if there's room, or on a row
-    // of their own under them in a narrow panel. The facts start below whichever row is lower.
+    private static void unavailable(Button button, @Nullable Component reason) {
+        if (button instanceof SlotButton slot) {
+            slot.setUnavailable(reason);
+        }
+    }
+
+    // The details page's buttons on the right (field, compass, sharing, tool): beside the orders if there's room, or on a
+    // row of their own under them in a narrow panel. The facts start below whichever row is lower.
     private static void placeRightButtons(Widgets widgets, int x, int width, int top) {
         List<Button> right = new ArrayList<>();
-        for (Button button : List.of(widgets.field(), widgets.sharing(), widgets.takeTool())) {
+        for (Button button : List.of(widgets.field(), widgets.locate(), widgets.sharing(), widgets.takeTool())) {
             if (button.visible) {
                 right.add(button);
             }
@@ -426,7 +488,14 @@ public final class WorkerPanel {
 
     private static void setHint(Button button, Component hint) {
         button.setMessage(hint);
-        button.setTooltip(Tooltip.create(hint));
+        if (!(button instanceof SlotButton)) { // a slot button makes its own tooltip from its hint
+            button.setTooltip(Tooltip.create(hint));
+        }
+    }
+
+    // One of the list page's buttons that give all your own workers the same order.
+    private static Button orderAllButton(Item icon, String hint, WorkerCommandPayload.Command order) {
+        return new SlotButton(new ItemStack(icon), Component.translatable(hint), button -> ClientWorkers.orderAll(order));
     }
 
     // One of the order buttons beside the worker's slot: shown in the worker's color while it's on that order.

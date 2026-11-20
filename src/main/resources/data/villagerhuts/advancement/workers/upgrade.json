@@ -1,0 +1,23 @@
+{
+  "parent": "villagerhuts:workers/root",
+  "display": {
+    "icon": {
+      "id": "villagerhuts:diamond_carrot"
+    },
+    "title": {
+      "translate": "advancements.villagerhuts.upgrade.title"
+    },
+    "description": {
+      "translate": "advancements.villagerhuts.upgrade.description"
+    },
+    "frame": "task",
+    "show_toast": true,
+    "announce_to_chat": true,
+    "hidden": false
+  },
+  "criteria": {
+    "done": {
+      "trigger": "minecraft:impossible"
+    }
+  }
+}

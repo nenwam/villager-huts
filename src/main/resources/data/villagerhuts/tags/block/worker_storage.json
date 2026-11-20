@@ -1,3 +1,10 @@
 {
-  "values": ["#c:chests", "#c:barrels"]
+  "values": [
+    "#c:chests",
+    "#c:barrels",
+    { "id": "#storagedrawers:drawers", "required": false },
+    { "id": "storagedrawers:controller", "required": false },
+    { "id": "toms_storage:inventory_connector", "required": false },
+    { "id": "toms_storage:inventory_interface", "required": false }
+  ]
 }
