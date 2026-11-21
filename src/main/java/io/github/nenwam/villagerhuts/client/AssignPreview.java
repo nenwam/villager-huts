@@ -7,6 +7,15 @@ import io.github.nenwam.villagerhuts.entity.WorkerAssigning;
 import io.github.nenwam.villagerhuts.farm.FarmArea;
 import io.github.nenwam.villagerhuts.farm.FarmPlan;
 import io.github.nenwam.villagerhuts.network.AssignModePayload;
+import com.mojang.blaze3d.vertex.PoseStack;
+import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
+import net.fabricmc.fabric.api.client.networking.v1.ClientPlayConnectionEvents;
+import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
+import net.fabricmc.fabric.api.client.rendering.v1.hud.HudElementRegistry;
+import net.fabricmc.fabric.api.client.rendering.v1.hud.VanillaHudElements;
+import net.fabricmc.fabric.api.client.rendering.v1.level.LevelRenderContext;
+import net.fabricmc.fabric.api.client.rendering.v1.level.LevelRenderEvents;
+import net.fabricmc.fabric.api.event.player.UseBlockCallback;
 import net.minecraft.client.DeltaTracker;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
@@ -28,16 +37,9 @@ import net.minecraft.world.phys.Vec3;
 import net.minecraft.world.phys.shapes.BooleanOp;
 import net.minecraft.world.phys.shapes.Shapes;
 import net.minecraft.world.phys.shapes.VoxelShape;
-import net.neoforged.api.distmarker.Dist;
-import net.neoforged.bus.api.SubscribeEvent;
-import net.neoforged.fml.common.EventBusSubscriber;
-import net.neoforged.neoforge.client.event.ClientPlayerNetworkEvent;
-import net.neoforged.neoforge.client.event.ClientTickEvent;
-import net.neoforged.neoforge.client.event.ExtractBlockOutlineRenderStateEvent;
-import net.neoforged.neoforge.client.event.RegisterGuiLayersEvent;
-import net.neoforged.neoforge.client.gui.VanillaGuiLayers;
-import net.neoforged.neoforge.client.network.event.RegisterClientPayloadHandlersEvent;
-import net.neoforged.neoforge.event.entity.player.PlayerInteractEvent;
+import net.minecraft.client.renderer.SubmitNodeCollector;
+import net.minecraft.world.phys.BlockHitResult;
+import net.minecraft.world.phys.HitResult;
 import org.jspecify.annotations.Nullable;
 
 /**
@@ -55,7 +57,6 @@ import org.jspecify.annotations.Nullable;
  * All of these use the same checks and limits as the server, so the preview matches.
  * Right-clicking a block meanwhile doesn't do its normal thing (no chest opening): the server assigns it.
  */
-@EventBusSubscriber(modid = VillagerHuts.MODID, value = Dist.CLIENT)
 public final class AssignPreview {
     private static final int COLOR_AREA = ARGB.color(220, 255, 220, 50);
     private static final int COLOR_FARMLAND = ARGB.color(200, 90, 255, 90);
@@ -72,6 +73,7 @@ public final class AssignPreview {
     private static AssignModePayload.@Nullable Selected selected;
     private static int ticksLeft;
     private static @Nullable Preview cached;
+    private static @Nullable Preview shownThisFrame; // worked out at the end of extraction, drawn when submitting
 
     /** An outline of some blocks, in a color. */
     private record Cells(VoxelShape shape, int color) {}
@@ -99,44 +101,34 @@ public final class AssignPreview {
 
     // ------------------------------------------------------------------ selection
 
-    @SubscribeEvent
-    static void registerPayloadHandler(RegisterClientPayloadHandlersEvent event) {
-        event.register(AssignModePayload.TYPE, (payload, context) -> {
-            selected = payload.selected().orElse(null);
-            ticksLeft = selected == null ? 0 : selected.ticks();
+    /** Hooks the preview into the game (from VillagerHutsClient). */
+    public static void register() {
+        ClientPlayNetworking.registerGlobalReceiver(AssignModePayload.TYPE, (payload, context) -> receive(payload));
+        ClientTickEvents.END_CLIENT_TICK.register(minecraft -> {
+            if (selected != null && (--ticksLeft <= 0 || minecraft.player == null)) {
+                selected = null; // ran out (the server times it out too)
+                cached = null;
+            }
+        });
+        ClientPlayConnectionEvents.DISCONNECT.register((connection, minecraft) -> {
+            selected = null;
             cached = null;
         });
+        // The click still goes to the server, which assigns the block; here it just mustn't open the chest.
+        UseBlockCallback.EVENT.register((player, level, hand, hit) ->
+                selected != null && level.isClientSide() ? InteractionResult.SUCCESS : InteractionResult.PASS);
+        HudElementRegistry.attachElementAfter(VanillaHudElements.OVERLAY_MESSAGE, HINT_LAYER, AssignPreview::drawHint);
+        LevelRenderEvents.END_EXTRACTION.register(context -> shownThisFrame = preview(context.level()));
+        LevelRenderEvents.COLLECT_SUBMITS.register(AssignPreview::submit);
     }
 
-    @SubscribeEvent
-    static void onClientTick(ClientTickEvent.Post event) {
-        if (selected != null && (--ticksLeft <= 0 || Minecraft.getInstance().player == null)) {
-            selected = null; // ran out (the server times it out too)
-            cached = null;
-        }
-    }
-
-    @SubscribeEvent
-    static void onLogout(ClientPlayerNetworkEvent.LoggingOut event) {
-        selected = null;
+    private static void receive(AssignModePayload payload) {
+        selected = payload.selected().orElse(null);
+        ticksLeft = selected == null ? 0 : selected.ticks();
         cached = null;
     }
 
-    // The click still goes to the server, which assigns the block; here it just mustn't open the chest.
-    @SubscribeEvent
-    static void onRightClickBlock(PlayerInteractEvent.RightClickBlock event) {
-        if (selected != null && event.getLevel().isClientSide()) {
-            event.setCanceled(true);
-            event.setCancellationResult(InteractionResult.SUCCESS);
-        }
-    }
-
     // ------------------------------------------------------------------ hint
-
-    @SubscribeEvent
-    static void registerHint(RegisterGuiLayersEvent event) {
-        event.registerAbove(VanillaGuiLayers.OVERLAY_MESSAGE, HINT_LAYER, AssignPreview::drawHint);
-    }
 
     private static void drawHint(GuiGraphicsExtractor graphics, DeltaTracker deltaTracker) {
         AssignModePayload.Selected now = selected;
@@ -155,33 +147,38 @@ public final class AssignPreview {
 
     // ------------------------------------------------------------------ preview
 
-    @SubscribeEvent
-    static void onExtractBlockOutline(ExtractBlockOutlineRenderStateEvent event) {
+    // What to show this frame: the preview for the block the player's looking at, while a worker is selected.
+    private static @Nullable Preview preview(ClientLevel level) {
         AssignModePayload.Selected now = selected;
-        if (now == null) {
-            return;
+        if (now == null || !(Minecraft.getInstance().hitResult instanceof BlockHitResult hit) || hit.getType() != HitResult.Type.BLOCK) {
+            return null;
         }
-        BlockPos aimedAt = event.getBlockPos();
-        long time = event.getLevel().getGameTime();
+        BlockPos aimedAt = hit.getBlockPos();
+        long time = level.getGameTime();
         Preview preview = cached;
         if (preview == null || !preview.aimedAt().equals(aimedAt) || preview.selected() != now || time - preview.gameTime() >= REFRESH_TICKS) {
-            preview = build(event.getLevel(), aimedAt, now, time);
+            preview = build(level, aimedAt, now, time);
             cached = preview;
         }
+        return preview;
+    }
 
-        Preview shown = preview;
+    private static void submit(LevelRenderContext context) {
+        Preview shown = shownThisFrame;
+        if (shown == null) {
+            return;
+        }
         float lineWidth = Minecraft.getInstance().getWindow().getAppropriateLineWidth();
-        event.addCustomRenderer((state, collector, poseStack, levelState) -> {
-            Vec3 camera = levelState.cameraRenderState.pos;
-            poseStack.pushPose();
-            poseStack.translate(shown.origin().getX() - camera.x, shown.origin().getY() - camera.y, shown.origin().getZ() - camera.z);
-            collector.submitShapeOutline(poseStack, shown.area(), RenderTypes.linesTranslucent(), shown.areaColor(), lineWidth, false);
-            for (Cells cells : shown.cells()) {
-                collector.submitShapeOutline(poseStack, cells.shape(), RenderTypes.linesTranslucent(), cells.color(), lineWidth, false);
-            }
-            poseStack.popPose();
-            return false;
-        });
+        Vec3 camera = context.levelState().cameraRenderState.pos;
+        PoseStack poseStack = context.poseStack();
+        SubmitNodeCollector collector = context.submitNodeCollector();
+        poseStack.pushPose();
+        poseStack.translate(shown.origin().getX() - camera.x, shown.origin().getY() - camera.y, shown.origin().getZ() - camera.z);
+        collector.submitShapeOutline(poseStack, shown.area(), RenderTypes.linesTranslucent(), shown.areaColor(), lineWidth, false);
+        for (Cells cells : shown.cells()) {
+            collector.submitShapeOutline(poseStack, cells.shape(), RenderTypes.linesTranslucent(), cells.color(), lineWidth, false);
+        }
+        poseStack.popPose();
     }
 
     private static Preview build(ClientLevel level, BlockPos aimedAt, AssignModePayload.Selected now, long time) {

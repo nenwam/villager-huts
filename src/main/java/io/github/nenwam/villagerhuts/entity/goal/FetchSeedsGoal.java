@@ -4,7 +4,6 @@ import io.github.nenwam.villagerhuts.entity.WorkerEntity;
 import io.github.nenwam.villagerhuts.entity.WorkerStorage;
 import io.github.nenwam.villagerhuts.job.WorkerJob;
 import net.minecraft.network.chat.Component;
-import net.neoforged.neoforge.items.IItemHandler;
 
 /**
  * Farmer: out of seeds, with empty farmland to plant and nothing ripe to harvest? Walk to its
@@ -36,12 +35,12 @@ public class FetchSeedsGoal extends StorageTripGoal {
     }
 
     @Override
-    protected boolean isUseful(IItemHandler storage) {
-        return WorkerStorage.has(storage, this.worker::canPlantNow);
+    protected boolean isUseful(WorkerStorage storage) {
+        return storage.has(this.worker::canPlantNow);
     }
 
     @Override
-    protected int useStorage(IItemHandler storage) {
+    protected int useStorage(WorkerStorage storage) {
         int taken = this.take(storage, this.worker::canPlantNow, Math.min(MAX_SEEDS, this.worker.getEmptyFarmland()));
         return taken > 0 ? 20 : CHECK_TICKS;
     }

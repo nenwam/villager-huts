@@ -22,6 +22,8 @@ import io.github.nenwam.villagerhuts.farm.FarmPlan;
 import io.github.nenwam.villagerhuts.item.FarmerItem;
 import io.github.nenwam.villagerhuts.item.FighterItem;
 import io.github.nenwam.villagerhuts.job.Weapons;
+import net.fabricmc.api.ModInitializer;
+import net.fabricmc.fabric.api.event.registry.DynamicRegistrySetupCallback;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.tags.ItemTags;
 import net.minecraft.world.entity.LivingEntity;
@@ -47,6 +49,8 @@ import io.netty.buffer.Unpooled;
 import io.github.nenwam.villagerhuts.roster.WorkerRoster;
 import net.minecraft.advancements.AdvancementHolder;
 import net.minecraft.core.BlockPos;
+import net.minecraft.gametest.framework.GameTestInstance;
+import net.minecraft.core.Registry;
 import net.minecraft.core.Direction;
 import net.minecraft.core.Holder;
 import net.minecraft.core.component.DataComponents;
@@ -90,24 +94,16 @@ import net.minecraft.world.level.levelgen.structure.BoundingBox;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.Vec3;
-import net.neoforged.bus.api.IEventBus;
-import net.neoforged.neoforge.common.NeoForge;
-import net.neoforged.neoforge.event.level.BlockDropsEvent;
-import net.neoforged.neoforge.event.RegisterGameTestsEvent;
-import net.neoforged.neoforge.gametest.GameTestHooks;
-import net.neoforged.neoforge.registries.DeferredRegister;
 import org.jspecify.annotations.Nullable;
 
 /**
  * Automated in-game tests ("chaos tests") for workers. Each test builds a fenced farm and a chest on a
  * grass platform and hires a farmer for them, then breaks things on purpose and checks the mod copes.
  *
- * Run them all with: ./gradlew runGameTestServer
- * Only registered in development and test runs, never in a normal game.
+ * Run them all with: ./gradlew runGameTest
+ * They're a mod of their own (villagerhuts_tests, src/gametest), only in development: never in the released jar.
  */
-public final class VillagerHutsTests {
-    private static final DeferredRegister<Consumer<GameTestHelper>> FUNCTIONS =
-            DeferredRegister.create(Registries.TEST_FUNCTION, VillagerHuts.MODID);
+public final class VillagerHutsTests implements ModInitializer {
     private static final Identifier PLATFORM = id("test/platform");
 
     // Positions on the test platform (relative). buildFarm makes a 7x7 farm (48 farmland around a water
@@ -175,7 +171,6 @@ public final class VillagerHutsTests {
             new Test("workers_warn_when_they_cant_breathe", 200, VillagerHutsTests::workersWarnWhenTheyCantBreathe),
             new Test("hiring_and_upgrading_give_advancements", 40, VillagerHutsTests::hiringAndUpgradingGiveAdvancements),
             new Test("any_tagged_storage_works_as_a_chest", 2400, VillagerHutsTests::anyTaggedStorageWorksAsAChest),
-            new Test("harvests_are_announced_like_any_broken_block", 1200, VillagerHutsTests::harvestsAreAnnouncedLikeAnyBrokenBlock),
             new Test("fighter_item_hires_an_unarmed_sikh_fighter", 40, VillagerHutsTests::fighterItemHiresAnUnarmedSikhFighter),
             new Test("weapons_make_warriors_and_rangers", 40, VillagerHutsTests::weaponsMakeWarriorsAndRangers),
             new Test("warrior_defends_its_post", 600, VillagerHutsTests::warriorDefendsItsPost),
@@ -192,27 +187,35 @@ public final class VillagerHutsTests {
             new Test("fighters_keep_watch_at_night", 400, VillagerHutsTests::fightersKeepWatchAtNight, When.NIGHT),
             new Test("fighters_sleep_in_the_morning", 800, VillagerHutsTests::fightersSleepInTheMorning, When.MORNING));
 
-    public static void register(IEventBus modBus) {
-        if (!GameTestHooks.isGametestEnabled()) {
-            return;
-        }
+    /** Registers the tests (the test mod's entrypoint; never in a normal game: this mod only exists in development). */
+    @Override
+    public void onInitialize() {
         for (Test test : TESTS) {
-            FUNCTIONS.register(test.name(), () -> test.body());
+            Registry.register(BuiltInRegistries.TEST_FUNCTION, id(test.name()), test.body());
         }
-        FUNCTIONS.register(modBus);
-        modBus.addListener(VillagerHutsTests::registerTests);
+        DynamicRegistrySetupCallback.EVENT.register(registries -> {
+            registries.getOptional(Registries.TEST_ENVIRONMENT).ifPresent(VillagerHutsTests::registerEnvironments);
+            registries.getOptional(Registries.TEST_INSTANCE).ifPresent(VillagerHutsTests::registerInstances);
+        });
+        GameTestRun.register(); // runs them all when the server starts, for ./gradlew runGameTest
     }
 
-    private static void registerTests(RegisterGameTestsEvent event) {
-        Holder<TestEnvironmentDefinition<?>> day =
-                event.registerEnvironment(id("default"), new TestEnvironmentDefinition.AllOf(List.of()));
+    private static @Nullable Holder<TestEnvironmentDefinition<?>> day;
+    private static @Nullable Holder<TestEnvironmentDefinition<?>> night;
+    private static @Nullable Holder<TestEnvironmentDefinition<?>> morning;
+
+    private static void registerEnvironments(Registry<TestEnvironmentDefinition<?>> environments) {
+        day = Registry.registerForHolder(environments, id("default"), new TestEnvironmentDefinition.AllOf(List.of()));
         // Tests run in batches by environment, so the night-time tests run on their own: the clock is set to midnight
         // for them (data/villagerhuts/function/test/night), then back to morning (test/day). The morning tests too.
         // (Each of these tests sets the time again when it starts: it can start a while after its batch does.)
-        Holder<TestEnvironmentDefinition<?>> night = event.registerEnvironment(id("night"),
+        night = Registry.registerForHolder(environments, id("night"),
                 new TestEnvironmentDefinition.Functions(Optional.of(id("test/night")), Optional.of(id("test/day"))));
-        Holder<TestEnvironmentDefinition<?>> morning = event.registerEnvironment(id("morning"),
+        morning = Registry.registerForHolder(environments, id("morning"),
                 new TestEnvironmentDefinition.Functions(Optional.of(id("test/day")), Optional.empty()));
+    }
+
+    private static void registerInstances(Registry<GameTestInstance> instances) {
         for (Test test : TESTS) {
             ResourceKey<Consumer<GameTestHelper>> function = ResourceKey.create(Registries.TEST_FUNCTION, id(test.name()));
             Holder<TestEnvironmentDefinition<?>> environment = switch (test.when()) {
@@ -220,8 +223,8 @@ public final class VillagerHutsTests {
                 case NIGHT -> night;
                 case MORNING -> morning;
             };
-            event.registerTest(id(test.name()), data -> new FunctionGameTestInstance(function, data),
-                    new TestData<>(environment, PLATFORM, test.maxTicks(), 0, true));
+            Registry.register(instances, id(test.name()), new FunctionGameTestInstance(function,
+                    new TestData<>(environment, PLATFORM, test.maxTicks(), 0, true)));
         }
     }
 
@@ -652,7 +655,7 @@ public final class VillagerHutsTests {
         stranger.setItemInHand(InteractionHand.MAIN_HAND, tag);
         worker.interact(stranger, InteractionHand.MAIN_HAND, Vec3.ZERO);
         helper.assertTrue(worker.getCustomName().getString().equals(name), "a stranger renamed it to " + worker.getCustomName().getString());
-        stranger.setItemInHand(InteractionHand.MAIN_HAND, new ItemStack(ModItems.DIAMOND_CARROT.get(), 64));
+        stranger.setItemInHand(InteractionHand.MAIN_HAND, new ItemStack(ModItems.DIAMOND_CARROT, 64));
         worker.interact(stranger, InteractionHand.MAIN_HAND, Vec3.ZERO);
         helper.assertTrue(worker.getRank() == 1 && stranger.getMainHandItem().getCount() == 64, "a stranger upgraded it");
 
@@ -673,8 +676,8 @@ public final class VillagerHutsTests {
         WorkerEntity worker = FarmerItem.spawnFarmer(helper.getLevel(), helper.absolutePos(WORKER_SPOT), owner);
         int base = worker.getDailyLimit();
         helper.assertTrue(worker.getRank() == 1 && base == 64, "new farmer is rank " + worker.getRank() + " with a limit of " + base);
-        Item diamond = ModItems.DIAMOND_CARROT.get();
-        Item flawless = ModItems.FLAWLESS_DIAMOND_CARROT.get();
+        Item diamond = ModItems.DIAMOND_CARROT;
+        Item flawless = ModItems.FLAWLESS_DIAMOND_CARROT;
 
         offer(helper, worker, owner, flawless, 2, 1, 2);  // Novice: flawless ones aren't for Apprentice
         offer(helper, worker, owner, diamond, 1, 2, 0);   // Apprentice
@@ -704,16 +707,16 @@ public final class VillagerHutsTests {
      * golden carrot, and so does a Fighter (with a grindstone and a target).
      */
     private static void recipesForFarmersAndUpgrades(GameTestHelper helper) {
-        assertCrafts(helper, ring(Items.DIAMOND, Items.CARROT), ModItems.DIAMOND_CARROT.get());
-        assertCrafts(helper, ring(Items.DIAMOND_BLOCK, Items.CARROT), ModItems.FLAWLESS_DIAMOND_CARROT.get());
+        assertCrafts(helper, ring(Items.DIAMOND, Items.CARROT), ModItems.DIAMOND_CARROT);
+        assertCrafts(helper, ring(Items.DIAMOND_BLOCK, Items.CARROT), ModItems.FLAWLESS_DIAMOND_CARROT);
         assertCrafts(helper, ring(Items.DIAMOND, Items.GOLDEN_CARROT), null);
         assertCrafts(helper, ring(Items.GOLD_BLOCK, Items.CARROT), null);
-        assertCrafts(helper, grid(Items.IRON_HOE, Items.COMPOSTER, Items.GOLDEN_CARROT), ModItems.FARMER.get());
-        assertCrafts(helper, grid(Items.GOLDEN_CARROT, Items.IRON_HOE, Items.COMPOSTER), ModItems.FARMER.get());
+        assertCrafts(helper, grid(Items.IRON_HOE, Items.COMPOSTER, Items.GOLDEN_CARROT), ModItems.FARMER);
+        assertCrafts(helper, grid(Items.GOLDEN_CARROT, Items.IRON_HOE, Items.COMPOSTER), ModItems.FARMER);
         assertCrafts(helper, grid(Items.IRON_HOE, Items.COMPOSTER), null);
         assertCrafts(helper, grid(Items.IRON_HOE, Items.COMPOSTER, Items.CARROT), null);
-        assertCrafts(helper, grid(Items.GRINDSTONE, Items.TARGET, Items.GOLDEN_CARROT), ModItems.FIGHTER.get());
-        assertCrafts(helper, grid(Items.TARGET, Items.GOLDEN_CARROT, Items.GRINDSTONE), ModItems.FIGHTER.get());
+        assertCrafts(helper, grid(Items.GRINDSTONE, Items.TARGET, Items.GOLDEN_CARROT), ModItems.FIGHTER);
+        assertCrafts(helper, grid(Items.TARGET, Items.GOLDEN_CARROT, Items.GRINDSTONE), ModItems.FIGHTER);
         assertCrafts(helper, grid(Items.GRINDSTONE, Items.TARGET), null);
         helper.succeed();
     }
@@ -943,7 +946,7 @@ public final class VillagerHutsTests {
                 assertKey(helper, told.get(0), "message.villagerhuts.needs_you");
                 Object status = ((TranslatableContents) told.get(0).getContents()).getArgs()[4];
                 assertKey(helper, (Component) status, "activity.villagerhuts.out_of_seeds");
-                worker.kill();
+                worker.kill(helper.getLevel());
                 List<Component> afterDeath = sent.stream().filter(s -> s.player().equals(owner.getUUID())).map(WorkerNotices.Sent::message).toList();
                 helper.assertTrue(afterDeath.size() == 2, "owner wasn't told it died: " + afterDeath);
                 assertKey(helper, afterDeath.get(1), "message.villagerhuts.worker_died");
@@ -1068,16 +1071,16 @@ public final class VillagerHutsTests {
         player.setGameMode(GameType.SURVIVAL); // so the carrots get used up
         try {
             assertAdvancement(helper, player, WorkerAdvancements.HIRE_FARMER, false);
-            player.setItemInHand(InteractionHand.MAIN_HAND, new ItemStack(ModItems.FARMER.get()));
+            player.setItemInHand(InteractionHand.MAIN_HAND, new ItemStack(ModItems.FARMER));
             BlockPos ground = helper.absolutePos(WORKER_SPOT.below());
             UseOnContext use = new UseOnContext(player, InteractionHand.MAIN_HAND, new BlockHitResult(Vec3.atCenterOf(ground), Direction.UP, ground, false));
-            helper.assertTrue(ModItems.FARMER.get().useOn(use).consumesAction(), "the Farmer item didn't hire anyone");
+            helper.assertTrue(ModItems.FARMER.useOn(use).consumesAction(), "the Farmer item didn't hire anyone");
             assertAdvancement(helper, player, WorkerAdvancements.HIRE_FARMER, true);
             assertAdvancement(helper, player, WorkerAdvancements.UPGRADE, false);
 
             WorkerEntity worker = helper.getLevel().getEntitiesOfClass(WorkerEntity.class, new AABB(ground).inflate(2), w -> w.isOwner(player))
-                    .stream().findFirst().orElseThrow(() -> new GameTestAssertException("no farmer next to the player"));
-            offer(helper, worker, player, ModItems.DIAMOND_CARROT.get(), 1, 2, 0);
+                    .stream().findFirst().orElseThrow(() -> helper.assertionException("no farmer next to the player"));
+            offer(helper, worker, player, ModItems.DIAMOND_CARROT, 1, 2, 0);
             assertAdvancement(helper, player, WorkerAdvancements.UPGRADE, true);
             assertAdvancement(helper, player, WorkerAdvancements.MASTER, false);
             helper.succeed();
@@ -1103,29 +1106,6 @@ public final class VillagerHutsTests {
         helper.succeedWhen(() -> {
             helper.assertTrue(countCrops(helper) == 6, "planted " + countCrops(helper) + " of 6 seeds from the barrel");
             helper.assertTrue(count(barrel, Items.WHEAT_SEEDS) == 0, "seeds left in the barrel");
-        });
-    }
-
-    /**
-     * A farmer's harvest drops the way any broken block's does (NeoForge's BlockDropsEvent), so mods that count
-     * production (the Seed to Stars Colony Ledger) see it; what the event leaves is what the farmer collects.
-     */
-    private static void harvestsAreAnnouncedLikeAnyBrokenBlock(GameTestHelper helper) {
-        WorkerEntity worker = hireFarmer(helper, null);
-        BlockPos crop = FARM_CORNER;
-        helper.setBlock(crop, Blocks.WHEAT.defaultBlockState().setValue(CropBlock.AGE, 7));
-        int[] announcedWheat = new int[1];
-        Consumer<BlockDropsEvent> listener = event -> {
-            if (event.getBreaker() == worker) {
-                event.getDrops().stream().map(ItemEntity::getItem).filter(stack -> stack.is(Items.WHEAT)).forEach(stack -> announcedWheat[0] += stack.getCount());
-            }
-        };
-        NeoForge.EVENT_BUS.addListener(listener);
-        helper.succeedWhen(() -> {
-            helper.assertTrue(announcedWheat[0] == 1, "announced " + announcedWheat[0] + " wheat");
-            int collected = worker.getCollected().getOrDefault(BuiltInRegistries.ITEM.getKey(Items.WHEAT), 0);
-            helper.assertTrue(collected == 1, "collected " + collected + " wheat");
-            NeoForge.EVENT_BUS.unregister(listener);
         });
     }
 
@@ -1438,14 +1418,14 @@ public final class VillagerHutsTests {
                     double damage = warrior.getAttributeValue(Attributes.ATTACK_DAMAGE);
                     helper.assertTrue(warrior.getMaxHealth() == 20 && damage == 6.0,
                             "a new warrior has " + warrior.getMaxHealth() + " health and " + damage + " damage");
-                    offer(helper, warrior, owner, ModItems.DIAMOND_CARROT.get(), 1, 2, 0);
-                    offer(helper, warrior, owner, ModItems.DIAMOND_CARROT.get(), 2, 3, 0);
-                    offer(helper, warrior, owner, ModItems.FLAWLESS_DIAMOND_CARROT.get(), 1, 4, 0);
-                    offer(helper, warrior, owner, ModItems.FLAWLESS_DIAMOND_CARROT.get(), 2, 5, 0);
+                    offer(helper, warrior, owner, ModItems.DIAMOND_CARROT, 1, 2, 0);
+                    offer(helper, warrior, owner, ModItems.DIAMOND_CARROT, 2, 3, 0);
+                    offer(helper, warrior, owner, ModItems.FLAWLESS_DIAMOND_CARROT, 1, 4, 0);
+                    offer(helper, warrior, owner, ModItems.FLAWLESS_DIAMOND_CARROT, 2, 5, 0);
                     helper.assertTrue(warrior.getMaxHealth() == 40 && warrior.getAttributeValue(Attributes.ATTACK_DAMAGE) == damage + 4,
                             "a Master has " + warrior.getMaxHealth() + " health and " + warrior.getAttributeValue(Attributes.ATTACK_DAMAGE) + " damage");
                     WorkerEntity farmer = FarmerItem.spawnFarmer(helper.getLevel(), helper.absolutePos(WORKER_SPOT), owner);
-                    offer(helper, farmer, owner, ModItems.DIAMOND_CARROT.get(), 1, 2, 0);
+                    offer(helper, farmer, owner, ModItems.DIAMOND_CARROT, 1, 2, 0);
                     helper.assertTrue(farmer.getMaxHealth() == 20, "a farmer's health went up with its level");
                 })
                 .thenSucceed();
@@ -1656,5 +1636,4 @@ public final class VillagerHutsTests {
         return Identifier.fromNamespaceAndPath(VillagerHuts.MODID, path);
     }
 
-    private VillagerHutsTests() {}
 }

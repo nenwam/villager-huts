@@ -54,7 +54,7 @@ public class FarmerItem extends Item {
      * them, follows them until it's given work, and gets a look and a name, different from their other workers' names.
      */
     public static @Nullable WorkerEntity spawnWorker(ServerLevel level, BlockPos pos, @Nullable Player owner, WorkerJob job, ItemStack tool) {
-        WorkerEntity worker = ModEntities.WORKER.get().create(level, EntitySpawnReason.SPAWN_ITEM_USE);
+        WorkerEntity worker = ModEntities.WORKER.create(level, EntitySpawnReason.SPAWN_ITEM_USE);
         if (worker == null) {
             return null;
         }
@@ -100,7 +100,7 @@ public class FarmerItem extends Item {
         WorkerAdvancements.award(player, worker.getJob().isFighter() ? WorkerAdvancements.HIRE_FIGHTER : WorkerAdvancements.HIRE_FARMER);
         Space.Danger danger = Space.dangerFor(worker, level, pos.above());
         if (player != null && danger != null) { // hired where it can't live (Ad Astra): it's up to you to move it
-            player.displayClientMessage(Component.translatable("message.villagerhuts.hired_in_danger", danger.warning()), false);
+            player.sendSystemMessage(Component.translatable("message.villagerhuts.hired_in_danger", danger.warning()));
         }
         context.getItemInHand().consume(1, player);
         return InteractionResult.SUCCESS_SERVER;

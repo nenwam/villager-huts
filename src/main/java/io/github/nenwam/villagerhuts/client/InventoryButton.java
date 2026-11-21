@@ -1,7 +1,8 @@
 package io.github.nenwam.villagerhuts.client;
 
-import io.github.nenwam.villagerhuts.VillagerHuts;
 import io.github.nenwam.villagerhuts.registry.ModItems;
+import net.fabricmc.fabric.api.client.screen.v1.ScreenEvents;
+import net.fabricmc.fabric.api.client.screen.v1.Screens;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.AbstractWidget;
 import net.minecraft.client.gui.components.Button;
@@ -11,10 +12,6 @@ import net.minecraft.client.gui.navigation.ScreenRectangle;
 import net.minecraft.client.gui.screens.inventory.InventoryScreen;
 import net.minecraft.network.chat.Component;
 import net.minecraft.world.item.ItemStack;
-import net.neoforged.api.distmarker.Dist;
-import net.neoforged.bus.api.SubscribeEvent;
-import net.neoforged.fml.common.EventBusSubscriber;
-import net.neoforged.neoforge.client.event.ScreenEvent;
 
 /**
  * Adds a "Workers" button to the survival inventory that opens and closes the worker panel
@@ -22,27 +19,19 @@ import net.neoforged.neoforge.client.event.ScreenEvent;
  * button; if another mod's button is in the way, it moves to the next free spot. It re-checks
  * every frame, so it also follows the panel when the recipe book opens.
  */
-@EventBusSubscriber(modid = VillagerHuts.MODID, value = Dist.CLIENT)
 public final class InventoryButton {
 
-    @SubscribeEvent
-    static void onScreenInit(ScreenEvent.Init.Post event) {
-        if (event.getScreen() instanceof InventoryScreen screen) {
-            WorkersButton button = new WorkersButton();
-            event.addListener(button);
-            place(screen, button);
-        }
-    }
-
-    @SubscribeEvent
-    static void onScreenRender(ScreenEvent.Render.Pre event) {
-        if (event.getScreen() instanceof InventoryScreen screen) {
-            for (GuiEventListener child : screen.children()) {
-                if (child instanceof WorkersButton button) {
-                    place(screen, button);
-                }
+    /** Adds the button to the survival inventory (from VillagerHutsClient). */
+    public static void register() {
+        ScreenEvents.AFTER_INIT.register((minecraft, screen, width, height) -> {
+            if (screen instanceof InventoryScreen inventory) {
+                WorkersButton button = new WorkersButton();
+                Screens.getWidgets(inventory).add(button);
+                place(inventory, button);
+                // Follows the inventory when the recipe book opens or the window resizes.
+                ScreenEvents.beforeExtract(inventory).register((s, graphics, mouseX, mouseY, partialTick) -> place(inventory, button));
             }
-        }
+        });
     }
 
     // Spots to try, in order of preference (relative to the inventory panel).
@@ -90,7 +79,7 @@ public final class InventoryButton {
      * closed; dark and pushed in while it's open.
      */
     static final class WorkersButton extends Button {
-        private final ItemStack icon = new ItemStack(ModItems.FARMER.get());
+        private final ItemStack icon = new ItemStack(ModItems.FARMER);
         private Boolean shownState;
 
         WorkersButton() {

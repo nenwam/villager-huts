@@ -1,9 +1,8 @@
 package io.github.nenwam.villagerhuts.entity;
 
-import java.util.Iterator;
 
-import io.github.nenwam.villagerhuts.VillagerHuts;
 import io.github.nenwam.villagerhuts.registry.ModTags;
+import net.fabricmc.fabric.api.entity.event.v1.ServerLivingEntityEvents;
 import net.minecraft.world.damagesource.DamageSource;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
@@ -11,20 +10,15 @@ import net.minecraft.world.entity.Mob;
 import net.minecraft.world.entity.NeutralMob;
 import net.minecraft.world.entity.OwnableEntity;
 import net.minecraft.world.entity.animal.golem.AbstractGolem;
-import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.entity.monster.Creeper;
 import net.minecraft.world.entity.monster.Enemy;
 import net.minecraft.world.entity.monster.warden.Warden;
 import net.minecraft.world.entity.npc.villager.AbstractVillager;
 import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.entity.projectile.Projectile;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.phys.EntityHitResult;
-import net.neoforged.bus.api.SubscribeEvent;
-import net.neoforged.fml.common.EventBusSubscriber;
-import net.neoforged.neoforge.event.entity.ProjectileImpactEvent;
-import net.neoforged.neoforge.event.entity.living.LivingDeathEvent;
-import net.neoforged.neoforge.event.entity.living.LivingDropsEvent;
-import net.neoforged.neoforge.event.entity.living.LivingIncomingDamageEvent;
+import net.minecraft.world.phys.HitResult;
 import org.jspecify.annotations.Nullable;
 
 /**
@@ -34,7 +28,6 @@ import org.jspecify.annotations.Nullable;
  *    attacking a friend: wolves, bees or golems gone wild included;
  *  - what a fighter's foes drop goes into its pockets (what fits), and it counts who it has defeated.
  */
-@EventBusSubscriber(modid = VillagerHuts.MODID)
 public final class WorkerCombat {
 
     /**
@@ -43,7 +36,7 @@ public final class WorkerCombat {
      */
     public static boolean isFriend(WorkerEntity fighter, Entity entity) {
         if (entity == fighter || entity instanceof Player || entity instanceof WorkerEntity || entity instanceof AbstractVillager
-                || entity instanceof AbstractGolem || entity.getType().is(ModTags.FRIENDS)) {
+                || entity instanceof AbstractGolem || entity.getType().builtInRegistryHolder().is(ModTags.FRIENDS)) {
             return true;
         }
         if (entity instanceof OwnableEntity pet && pet.getOwnerReference() != null) {
@@ -79,54 +72,63 @@ public final class WorkerCombat {
 
     // ------------------------------------------------------------------ events
 
-    @SubscribeEvent
-    static void onIncomingDamage(LivingIncomingDamageEvent event) {
-        WorkerEntity fighter = fighterOf(event.getSource());
-        if (fighter != null && isFriend(fighter, event.getEntity())) {
-            event.setCanceled(true);
-        }
-    }
-
-    // An arrow (or trident) from a fighter only stops in a foe: anything else, it flies on through.
-    @SubscribeEvent
-    static void onProjectileImpact(ProjectileImpactEvent event) {
-        if (event.getRayTraceResult() instanceof EntityHitResult hit && event.getProjectile().getOwner() instanceof WorkerEntity fighter
-                && fighter.getJob().isFighter() && !(hit.getEntity() instanceof LivingEntity living && isFoe(fighter, living))) {
-            event.setCanceled(true);
-        }
-    }
-
-    @SubscribeEvent
-    static void onDeath(LivingDeathEvent event) {
-        WorkerEntity fighter = fighterOf(event.getSource());
-        if (fighter != null && !event.getEntity().level().isClientSide()) {
-            fighter.recordDefeated(event.getEntity());
-        }
-    }
-
-    // A foe's drops go straight into the fighter's pockets, as much as fits; the rest stays on the ground.
-    @SubscribeEvent
-    static void onDrops(LivingDropsEvent event) {
-        WorkerEntity fighter = fighterOf(event.getSource());
-        if (fighter == null || fighter.level().isClientSide() || !fighter.isAlive()) {
-            return;
-        }
-        Iterator<ItemEntity> drops = event.getDrops().iterator();
-        while (drops.hasNext()) {
-            ItemEntity drop = drops.next();
-            ItemStack stack = drop.getItem();
-            ItemStack rest = fighter.getInventory().addItem(stack.copy());
-            int taken = stack.getCount() - rest.getCount();
-            if (taken > 0) {
-                fighter.recordCollected(stack.copyWithCount(taken));
+    /** Hooks the fighters into the game's events (from VillagerHuts.onInitialize). */
+    public static void register() {
+        ServerLivingEntityEvents.ALLOW_DAMAGE.register((entity, source, amount) -> {
+            WorkerEntity fighter = fighterOf(source);
+            return fighter == null || !isFriend(fighter, entity);
+        });
+        ServerLivingEntityEvents.AFTER_DEATH.register((entity, source) -> {
+            WorkerEntity fighter = fighterOf(source);
+            if (fighter != null) {
+                fighter.recordDefeated(entity);
             }
-            if (rest.isEmpty()) {
-                drops.remove();
-            } else {
-                drop.setItem(rest);
-            }
+        });
+    }
+
+    // A foe's drops (its loot and what it carried) go straight into the fighter's pockets, as much as fits; the rest drops
+    // on the ground. LivingEntityMixin says when a mob a fighter killed is dropping its loot; EntityMixin hands each drop here.
+    private static @Nullable LivingEntity dropping;
+    private static @Nullable WorkerEntity pocketing;
+
+    /** A mob starts dropping its loot (LivingEntityMixin): if a fighter killed it, the drops go to the fighter. */
+    public static void startDrops(LivingEntity dying, DamageSource source) {
+        WorkerEntity fighter = fighterOf(source);
+        if (fighter != null && fighter.isAlive()) {
+            dropping = dying;
+            pocketing = fighter;
         }
-        fighter.markWorked();
+    }
+
+    public static void endDrops(LivingEntity dying) {
+        if (dropping == dying) {
+            dropping = null;
+            pocketing = null;
+        }
+    }
+
+    /** Something an entity drops (EntityMixin). Returns what's left for the ground (empty if the fighter took it all). */
+    public static ItemStack pocketDrop(Entity dropper, ItemStack stack) {
+        WorkerEntity fighter = pocketing;
+        if (fighter == null || dropper != dropping || stack.isEmpty()) {
+            return stack;
+        }
+        ItemStack rest = fighter.getInventory().addItem(stack.copy());
+        int taken = stack.getCount() - rest.getCount();
+        if (taken > 0) {
+            fighter.recordCollected(stack.copyWithCount(taken));
+            fighter.markWorked();
+        }
+        return rest;
+    }
+
+    /**
+     * An arrow (or trident) from a fighter only stops in a foe: anything else, it flies on through (ProjectileMixin,
+     * when the projectile hits something).
+     */
+    public static boolean passesThrough(Projectile projectile, HitResult hit) {
+        return hit instanceof EntityHitResult entityHit && projectile.getOwner() instanceof WorkerEntity fighter && fighter.getJob().isFighter()
+                && !(entityHit.getEntity() instanceof LivingEntity living && isFoe(fighter, living));
     }
 
     private WorkerCombat() {}

@@ -9,15 +9,16 @@ import java.util.List;
 import com.mojang.logging.LogUtils;
 
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.Holder;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.network.chat.Component;
-import net.minecraft.resources.ResourceLocation;
+import net.minecraft.resources.Identifier;
 import net.minecraft.tags.TagKey;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.levelgen.structure.BoundingBox;
-import net.neoforged.fml.ModList;
+import net.fabricmc.loader.api.FabricLoader;
 import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 
@@ -74,7 +75,7 @@ public final class Space {
         if (!found() || level.isClientSide()) {
             return null;
         }
-        EntityType<?> type = worker.getType();
+        Holder<EntityType<?>> type = worker.getType().builtInRegistryHolder();
         try {
             if (!type.is(LIVES_WITHOUT_OXYGEN) && !(boolean) hasOxygen.invoke(level, pos)) {
                 return Danger.NO_OXYGEN;
@@ -105,7 +106,7 @@ public final class Space {
     private static boolean found() {
         if (!looked) {
             looked = true;
-            if (ModList.get().isLoaded("ad_astra")) {
+            if (FabricLoader.getInstance().isModLoaded("ad_astra")) {
                 try {
                     hasOxygen = check("OxygenApi", "hasOxygen");
                     isHot = check("TemperatureApi", "isHot");
@@ -128,7 +129,7 @@ public final class Space {
     }
 
     private static TagKey<EntityType<?>> adAstraTag(String path) {
-        return TagKey.create(Registries.ENTITY_TYPE, ResourceLocation.fromNamespaceAndPath("ad_astra", path));
+        return TagKey.create(Registries.ENTITY_TYPE, Identifier.fromNamespaceAndPath("ad_astra", path));
     }
 
     private Space() {}

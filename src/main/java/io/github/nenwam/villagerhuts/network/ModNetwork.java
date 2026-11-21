@@ -7,12 +7,13 @@ import java.util.Optional;
 import java.util.UUID;
 
 import io.github.nenwam.villagerhuts.Config;
-import io.github.nenwam.villagerhuts.VillagerHuts;
 import io.github.nenwam.villagerhuts.compat.Teams;
 import io.github.nenwam.villagerhuts.entity.WorkerEntity;
 import io.github.nenwam.villagerhuts.job.Weapons;
 import io.github.nenwam.villagerhuts.job.WorkerJob;
 import io.github.nenwam.villagerhuts.roster.WorkerRoster;
+import net.fabricmc.fabric.api.networking.v1.PayloadTypeRegistry;
+import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
 import net.minecraft.ChatFormatting;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.registries.BuiltInRegistries;
@@ -25,41 +26,37 @@ import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.levelgen.structure.BoundingBox;
-import net.neoforged.bus.api.SubscribeEvent;
-import net.neoforged.fml.common.EventBusSubscriber;
-import net.neoforged.neoforge.network.PacketDistributor;
-import net.neoforged.neoforge.network.event.RegisterPayloadHandlersEvent;
-import net.neoforged.neoforge.network.handling.IPayloadContext;
-import net.neoforged.neoforge.network.registration.PayloadRegistrar;
 import org.jspecify.annotations.Nullable;
 
 /**
  * Registers the mod's network messages and answers the worker panel's requests (list, rename, orders, tool,
  * sharing, finding a worker). The server checks every request: a player can only use workers they own, that are
- * shared with them, or that belong to their party (FTB Teams), and only an owner can take a worker's tool, share
+ * shared with them, or that belong to their party, and only an owner can take a worker's tool, share
  * it, or give it away. A request it turns down gets a line in the panel saying why.
  */
-@EventBusSubscriber(modid = VillagerHuts.MODID)
 public final class ModNetwork {
 
-    @SubscribeEvent
-    static void register(RegisterPayloadHandlersEvent event) {
-        PayloadRegistrar registrar = event.registrar("5");
-        registrar.playToServer(RequestWorkersPayload.TYPE, RequestWorkersPayload.STREAM_CODEC, ModNetwork::sendWorkerList);
-        registrar.playToServer(RenameWorkerPayload.TYPE, RenameWorkerPayload.STREAM_CODEC, ModNetwork::handleRename);
-        registrar.playToServer(WorkerCommandPayload.TYPE, WorkerCommandPayload.STREAM_CODEC, ModNetwork::handleCommand);
-        registrar.playToServer(ShareWorkerPayload.TYPE, ShareWorkerPayload.STREAM_CODEC, ModNetwork::handleShare);
-        registrar.playToServer(OrderAllPayload.TYPE, OrderAllPayload.STREAM_CODEC, ModNetwork::handleOrderAll);
-        // The client-side handlers are registered in client/ClientWorkers and client/AssignPreview.
-        registrar.playToClient(WorkerListPayload.TYPE, WorkerListPayload.STREAM_CODEC);
-        registrar.playToClient(AssignModePayload.TYPE, AssignModePayload.STREAM_CODEC);
-        registrar.playToClient(PanelNoticePayload.TYPE, PanelNoticePayload.STREAM_CODEC);
+    /** Registers the messages, and the server's side of them (from VillagerHuts.onInitialize). */
+    public static void register() {
+        PayloadTypeRegistry.serverboundPlay().register(RequestWorkersPayload.TYPE, RequestWorkersPayload.STREAM_CODEC);
+        PayloadTypeRegistry.serverboundPlay().register(RenameWorkerPayload.TYPE, RenameWorkerPayload.STREAM_CODEC);
+        PayloadTypeRegistry.serverboundPlay().register(WorkerCommandPayload.TYPE, WorkerCommandPayload.STREAM_CODEC);
+        PayloadTypeRegistry.serverboundPlay().register(ShareWorkerPayload.TYPE, ShareWorkerPayload.STREAM_CODEC);
+        PayloadTypeRegistry.serverboundPlay().register(OrderAllPayload.TYPE, OrderAllPayload.STREAM_CODEC);
+        // The client's side of these is registered in client/ClientWorkers and client/AssignPreview.
+        PayloadTypeRegistry.clientboundPlay().register(WorkerListPayload.TYPE, WorkerListPayload.STREAM_CODEC);
+        PayloadTypeRegistry.clientboundPlay().register(AssignModePayload.TYPE, AssignModePayload.STREAM_CODEC);
+        PayloadTypeRegistry.clientboundPlay().register(PanelNoticePayload.TYPE, PanelNoticePayload.STREAM_CODEC);
+
+        ServerPlayNetworking.registerGlobalReceiver(RequestWorkersPayload.TYPE, (payload, context) -> sendWorkerList(context.player()));
+        ServerPlayNetworking.registerGlobalReceiver(RenameWorkerPayload.TYPE, ModNetwork::handleRename);
+        ServerPlayNetworking.registerGlobalReceiver(WorkerCommandPayload.TYPE, ModNetwork::handleCommand);
+        ServerPlayNetworking.registerGlobalReceiver(ShareWorkerPayload.TYPE, ModNetwork::handleShare);
+        ServerPlayNetworking.registerGlobalReceiver(OrderAllPayload.TYPE, ModNetwork::handleOrderAll);
     }
 
-    private static void sendWorkerList(RequestWorkersPayload payload, IPayloadContext context) {
-        if (context.player() instanceof ServerPlayer player) {
-            PacketDistributor.sendToPlayer(player, new WorkerListPayload(workerList(player.level().getServer(), player.getUUID())));
-        }
+    private static void sendWorkerList(ServerPlayer player) {
+        ServerPlayNetworking.send(player, new WorkerListPayload(workerList(player.level().getServer(), player.getUUID())));
     }
 
     /** The workers a player can use, for their worker panel: live data for workers that are loaded, last known data for the rest. */
@@ -95,52 +92,45 @@ public final class ModNetwork {
         return new WorkerInfo.PlayerRef(player, WorkerRoster.playerName(server, player).getString());
     }
 
-    private static void handleRename(RenameWorkerPayload payload, IPayloadContext context) {
-        if (!(context.player() instanceof ServerPlayer player)) {
-            return;
-        }
+    private static void handleRename(RenameWorkerPayload payload, ServerPlayNetworking.Context context) {
+        ServerPlayer player = context.player();
         MinecraftServer server = player.level().getServer();
         if (renameWorker(server, player.getUUID(), payload.worker(), payload.name())) {
-            sendWorkerList(RequestWorkersPayload.INSTANCE, context); // show the new name right away
+            sendWorkerList(player); // show the new name right away
         } else {
             notice(player, accessRefusal(server, player, payload.worker()));
         }
     }
 
-    private static void handleCommand(WorkerCommandPayload payload, IPayloadContext context) {
-        if (!(context.player() instanceof ServerPlayer player)) {
-            return;
-        }
+    private static void handleCommand(WorkerCommandPayload payload, ServerPlayNetworking.Context context) {
+        ServerPlayer player = context.player();
         MinecraftServer server = player.level().getServer();
         if (commandWorker(server, player, payload.worker(), payload.command())) {
-            sendWorkerList(RequestWorkersPayload.INSTANCE, context); // show the change right away
+            sendWorkerList(player); // show the change right away
         } else {
             notice(player, commandRefusal(server, player, payload.worker(), payload.command()));
         }
     }
 
-    private static void handleShare(ShareWorkerPayload payload, IPayloadContext context) {
-        if (!(context.player() instanceof ServerPlayer player)) {
-            return;
-        }
+    private static void handleShare(ShareWorkerPayload payload, ServerPlayNetworking.Context context) {
+        ServerPlayer player = context.player();
         MinecraftServer server = player.level().getServer();
         if (shareWorker(server, player, payload.worker(), payload.player(), payload.action())) {
-            sendWorkerList(RequestWorkersPayload.INSTANCE, context); // show the change right away
+            sendWorkerList(player); // show the change right away
         } else {
             notice(player, shareRefusal(server, player, payload.worker(), payload.player(), payload.action()));
         }
     }
 
-    private static void handleOrderAll(OrderAllPayload payload, IPayloadContext context) {
-        if (context.player() instanceof ServerPlayer player) {
-            notice(player, orderAll(player.level().getServer(), player, payload.order()));
-            sendWorkerList(RequestWorkersPayload.INSTANCE, context);
-        }
+    private static void handleOrderAll(OrderAllPayload payload, ServerPlayNetworking.Context context) {
+        ServerPlayer player = context.player();
+        notice(player, orderAll(player.level().getServer(), player, payload.order()));
+        sendWorkerList(player);
     }
 
     private static void notice(ServerPlayer player, @Nullable Component message) {
         if (message != null) {
-            PacketDistributor.sendToPlayer(player, new PanelNoticePayload(message));
+            ServerPlayNetworking.send(player, new PanelNoticePayload(message));
         }
     }
 
@@ -365,7 +355,7 @@ public final class ModNetwork {
         lines.add(entry.dimension() == Level.OVERWORLD
                 ? Component.translatable("message.villagerhuts.location", workerName(entry), pos.getX(), pos.getY(), pos.getZ())
                 : Component.translatable("message.villagerhuts.location_in", workerName(entry), pos.getX(), pos.getY(), pos.getZ(),
-                        entry.dimension().location().toString()));
+                        entry.dimension().identifier().toString()));
         if (onMap) {
             String name = entry.customName().orElse("Worker " + entry.number()).replace(':', ' ');
             lines.add(Component.literal("xaero-waypoint:" + name + ":" + name.substring(0, 1).toUpperCase(java.util.Locale.ROOT) + ":"
@@ -386,7 +376,7 @@ public final class ModNetwork {
         if (dimension == Level.END) {
             return "the-end";
         }
-        return "dim%" + dimension.location().getNamespace() + "$" + dimension.location().getPath().replace('/', '%');
+        return "dim%" + dimension.identifier().getNamespace() + "$" + dimension.identifier().getPath().replace('/', '%');
     }
 
     private static Component workerName(WorkerRoster.Entry entry) {

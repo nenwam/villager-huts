@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 1,
+  "id": "villagerhuts",
+  "version": "${version}",
+  "name": "${mod_name}",
+  "description": "Hire farmers to work your farms, and Sikh fighters (warriors and rangers) to guard your home. Give them a farm or post, a chest and a bed, level them up with diamond carrots, and share them with friends in multiplayer.",
+  "authors": ["connor"],
+  "contact": {
+    "sources": "https://github.com/nenwam/villager-huts"
+  },
+  "license": "All-Rights-Reserved",
+  "environment": "*",
+  "entrypoints": {
+    "main": ["io.github.nenwam.villagerhuts.VillagerHuts"],
+    "client": ["io.github.nenwam.villagerhuts.VillagerHutsClient"],
+    "jade": ["io.github.nenwam.villagerhuts.compat.JadeCompat"],
+    "jei_mod_plugin": ["io.github.nenwam.villagerhuts.compat.JeiCompat"]
+  },
+  "mixins": ["villagerhuts.mixins.json"],
+  "accessWidener": "villagerhuts.accesswidener",
+  "depends": {
+    "fabricloader": ">=0.20.1",
+    "minecraft": "~26.3",
+    "java": ">=25",
+    "fabric-api": "*",
+    "forgeconfigapiport": "*"
+  }
+}

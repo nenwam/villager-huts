@@ -1,35 +1,33 @@
 package io.github.nenwam.villagerhuts;
 
+import fuzs.forgeconfigapiport.fabric.api.v5.client.ConfigScreenFactoryRegistry;
+import io.github.nenwam.villagerhuts.client.AssignPreview;
+import io.github.nenwam.villagerhuts.client.ClientWorkers;
+import io.github.nenwam.villagerhuts.client.InventoryButton;
+import io.github.nenwam.villagerhuts.client.WorkerAreaHighlights;
 import io.github.nenwam.villagerhuts.client.WorkerModel;
+import io.github.nenwam.villagerhuts.client.WorkerPanel;
 import io.github.nenwam.villagerhuts.client.WorkerRenderer;
 import io.github.nenwam.villagerhuts.registry.ModEntities;
-import net.neoforged.api.distmarker.Dist;
-import net.neoforged.bus.api.SubscribeEvent;
-import net.neoforged.fml.ModContainer;
-import net.neoforged.fml.common.EventBusSubscriber;
-import net.neoforged.fml.common.Mod;
-import net.neoforged.neoforge.client.event.EntityRenderersEvent;
+import net.fabricmc.api.ClientModInitializer;
+import net.fabricmc.fabric.api.client.rendering.v1.EntityRendererRegistry;
+import net.fabricmc.fabric.api.client.rendering.v1.ModelLayerRegistry;
 import net.neoforged.neoforge.client.gui.ConfigurationScreen;
-import net.neoforged.neoforge.client.gui.IConfigScreenFactory;
 
-// Client-only entry point: this class never loads on a dedicated server,
-// so client code (rendering, screens) is safe here.
-@Mod(value = VillagerHuts.MODID, dist = Dist.CLIENT)
-@EventBusSubscriber(modid = VillagerHuts.MODID, value = Dist.CLIENT)
-public class VillagerHutsClient {
-    public VillagerHutsClient(ModContainer container) {
-        // In-game settings screen: Mods > Sanjay Gupta's Best Workers! > Config.
+public class VillagerHutsClient implements ClientModInitializer {
+    @Override
+    public void onInitializeClient() {
+        // In-game settings screen (Mod Menu > Sanjay Gupta's Best Workers! > Config).
         // Labels for each setting come from assets/villagerhuts/lang/en_us.json.
-        container.registerExtensionPoint(IConfigScreenFactory.class, ConfigurationScreen::new);
-    }
+        ConfigScreenFactoryRegistry.INSTANCE.register(VillagerHuts.MODID, ConfigurationScreen::new);
 
-    @SubscribeEvent
-    static void registerRenderers(EntityRenderersEvent.RegisterRenderers event) {
-        event.registerEntityRenderer(ModEntities.WORKER.get(), WorkerRenderer::new);
-    }
+        EntityRendererRegistry.register(ModEntities.WORKER, WorkerRenderer::new);
+        ModelLayerRegistry.registerModelLayer(WorkerModel.LAYER, WorkerModel::createBodyLayer);
 
-    @SubscribeEvent
-    static void registerModels(EntityRenderersEvent.RegisterLayerDefinitions event) {
-        event.registerLayerDefinition(WorkerModel.LAYER, WorkerModel::createBodyLayer);
+        ClientWorkers.register();
+        AssignPreview.register();
+        InventoryButton.register();
+        WorkerPanel.register();
+        WorkerAreaHighlights.register();
     }
 }

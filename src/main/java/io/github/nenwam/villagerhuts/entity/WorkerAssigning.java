@@ -13,6 +13,12 @@ import io.github.nenwam.villagerhuts.farm.FarmPlan;
 import io.github.nenwam.villagerhuts.network.AssignModePayload;
 import io.github.nenwam.villagerhuts.registry.ModTags;
 import io.github.nenwam.villagerhuts.roster.WorkerRoster;
+import net.fabricmc.fabric.api.entity.event.v1.ServerEntityLevelChangeEvents;
+import net.fabricmc.fabric.api.entity.event.v1.ServerPlayerEvents;
+import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
+import net.fabricmc.fabric.api.event.player.UseBlockCallback;
+import net.fabricmc.fabric.api.networking.v1.ServerPlayConnectionEvents;
+import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
 import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerLevel;
@@ -27,12 +33,8 @@ import net.minecraft.world.level.block.AbstractBedBlock;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.properties.BedPart;
 import net.minecraft.world.level.levelgen.structure.BoundingBox;
-import net.neoforged.bus.api.SubscribeEvent;
-import net.neoforged.fml.common.EventBusSubscriber;
-import net.neoforged.neoforge.event.entity.player.PlayerEvent;
-import net.neoforged.neoforge.event.entity.player.PlayerInteractEvent;
-import net.neoforged.neoforge.event.server.ServerStoppedEvent;
-import net.neoforged.neoforge.network.PacketDistributor;
+import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.phys.BlockHitResult;
 import org.jspecify.annotations.Nullable;
 
 /**
@@ -50,7 +52,6 @@ import org.jspecify.annotations.Nullable;
  * blocks of the worker's farm or post (or of the worker, if it has neither yet). A bed can only be one worker's.
  * Giving it any of these sets it working.
  */
-@EventBusSubscriber(modid = VillagerHuts.MODID)
 public final class WorkerAssigning {
     public static final int TIMEOUT_TICKS = 1200;
 
@@ -76,7 +77,7 @@ public final class WorkerAssigning {
         }
         SELECTED.put(player.getUUID(), new Selection(worker.getUUID(), newFarm, player.level().getGameTime() + TIMEOUT_TICKS));
         Component name = worker.hasCustomName() ? worker.getCustomName() : worker.getJob().displayName();
-        PacketDistributor.sendToPlayer(player, new AssignModePayload(Optional.of(new AssignModePayload.Selected(
+        ServerPlayNetworking.send(player, new AssignModePayload(Optional.of(new AssignModePayload.Selected(
                 worker.getUUID(), name, newFarm, Optional.ofNullable(worker.getWorkArea()), Config.FARMER_MAX_FARM_SIZE.getAsInt(),
                 Config.FARMER_NEW_FARM_SIZE.getAsInt(), Config.FARMER_MAX_FARM_DISTANCE.getAsInt(), TIMEOUT_TICKS,
                 fighter, Config.FIGHTER_GUARD_RADIUS.getAsInt()))));
@@ -197,63 +198,48 @@ public final class WorkerAssigning {
 
     // ------------------------------------------------------------------ events
 
-    @SubscribeEvent
-    static void onRightClickBlock(PlayerInteractEvent.RightClickBlock event) {
-        if (!(event.getEntity() instanceof ServerPlayer player) || !(event.getLevel() instanceof ServerLevel level)) {
-            return; // the client cancels its side itself (client/AssignPreview), so it doesn't predict opening the chest
+    /** Hooks assigning into the game's events (from VillagerHuts.onInitialize). */
+    public static void register() {
+        UseBlockCallback.EVENT.register(WorkerAssigning::onUseBlock);
+        ServerPlayConnectionEvents.DISCONNECT.register((connection, server) -> SELECTED.remove(connection.getPlayer().getUUID()));
+        ServerEntityLevelChangeEvents.AFTER_PLAYER_CHANGE_LEVEL.register((player, from, to) -> clear(player));
+        ServerPlayerEvents.AFTER_RESPAWN.register((oldPlayer, newPlayer, alive) -> clear(newPlayer));
+        ServerLifecycleEvents.SERVER_STOPPED.register(server -> SELECTED.clear());
+    }
+
+    // With a worker selected, right-clicking a block gives the worker that block (or the farm around it) instead of using it.
+    private static InteractionResult onUseBlock(Player user, Level world, InteractionHand hand, BlockHitResult hit) {
+        if (!(user instanceof ServerPlayer player) || !(world instanceof ServerLevel level)) {
+            return InteractionResult.PASS; // the client cancels its side itself (client/AssignPreview), so it doesn't predict opening the chest
         }
         Selection selection = selection(player);
         if (selection == null) {
-            return;
+            return InteractionResult.PASS;
         }
-        event.setCanceled(true);
-        event.setCancellationResult(InteractionResult.SUCCESS_SERVER);
-        if (event.getHand() != InteractionHand.MAIN_HAND) {
-            return;
+        if (hand != InteractionHand.MAIN_HAND) {
+            return InteractionResult.SUCCESS_SERVER;
         }
+        BlockPos clicked = hit.getBlockPos();
         WorkerEntity worker = level.getEntity(selection.worker()) instanceof WorkerEntity found && found.isAlive() ? found : null;
         if (worker != null && !worker.canCommand(player)) { // its owner stopped sharing it with them meanwhile
             clear(player);
             player.sendOverlayMessage(Component.translatable("message.villagerhuts.no_longer_shared"));
-            return;
+            return InteractionResult.SUCCESS_SERVER;
         }
         if (worker == null) {
             clear(player);
             player.sendOverlayMessage(Component.translatable("message.villagerhuts.assign_worker_missing"));
-            return;
+            return InteractionResult.SUCCESS_SERVER;
         }
-        Outcome outcome = selection.newFarm() ? createFarm(level, worker, event.getPos()) : assign(level, worker, event.getPos());
+        Outcome outcome = selection.newFarm() ? createFarm(level, worker, clicked) : assign(level, worker, clicked);
         player.sendOverlayMessage(outcome.message());
         if (outcome.assigned()) {
             clear(player);
-            level.playSound(null, event.getPos(), worker.getJob().isFighter() ? SoundEvents.VILLAGER_WORK_WEAPONSMITH
+            level.playSound(null, clicked, worker.getJob().isFighter() ? SoundEvents.VILLAGER_WORK_WEAPONSMITH
                     : SoundEvents.VILLAGER_WORK_FARMER, SoundSource.NEUTRAL, 1.0F, 1.0F);
         }
         // Not assigned: stay selected, so the player can try another spot.
-    }
-
-    @SubscribeEvent
-    static void onLogout(PlayerEvent.PlayerLoggedOutEvent event) {
-        SELECTED.remove(event.getEntity().getUUID());
-    }
-
-    @SubscribeEvent
-    static void onChangedDimension(PlayerEvent.PlayerChangedDimensionEvent event) {
-        if (event.getEntity() instanceof ServerPlayer player) {
-            clear(player);
-        }
-    }
-
-    @SubscribeEvent
-    static void onRespawn(PlayerEvent.PlayerRespawnEvent event) {
-        if (event.getEntity() instanceof ServerPlayer player) {
-            clear(player);
-        }
-    }
-
-    @SubscribeEvent
-    static void onServerStopped(ServerStoppedEvent event) {
-        SELECTED.clear();
+        return InteractionResult.SUCCESS_SERVER;
     }
 
     private static @Nullable Selection selection(ServerPlayer player) {
@@ -267,7 +253,7 @@ public final class WorkerAssigning {
 
     private static void clear(ServerPlayer player) {
         if (SELECTED.remove(player.getUUID()) != null) {
-            PacketDistributor.sendToPlayer(player, AssignModePayload.NONE);
+            ServerPlayNetworking.send(player, AssignModePayload.NONE);
         }
     }
 

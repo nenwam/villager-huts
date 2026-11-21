@@ -4,38 +4,41 @@ import org.slf4j.Logger;
 
 import com.mojang.logging.LogUtils;
 
+import fuzs.forgeconfigapiport.fabric.api.v5.ConfigRegistry;
+import io.github.nenwam.villagerhuts.compat.CompatCheck;
+import io.github.nenwam.villagerhuts.entity.WorkerAssigning;
+import io.github.nenwam.villagerhuts.entity.WorkerCombat;
 import io.github.nenwam.villagerhuts.entity.WorkerEntity;
-import io.github.nenwam.villagerhuts.gametest.VillagerHutsTests;
+import io.github.nenwam.villagerhuts.entity.WorkerHunting;
+import io.github.nenwam.villagerhuts.network.ModNetwork;
 import io.github.nenwam.villagerhuts.registry.ModCreativeTabs;
 import io.github.nenwam.villagerhuts.registry.ModEntities;
 import io.github.nenwam.villagerhuts.registry.ModItems;
-import net.neoforged.bus.api.IEventBus;
-import net.neoforged.fml.ModContainer;
-import net.neoforged.fml.common.Mod;
+import net.fabricmc.api.ModInitializer;
+import net.fabricmc.fabric.api.object.builder.v1.entity.FabricDefaultAttributeRegistry;
 import net.neoforged.fml.config.ModConfig;
-import net.neoforged.neoforge.event.entity.EntityAttributeCreationEvent;
 
-// The value here must match modId in META-INF/neoforge.mods.toml (filled in from gradle.properties).
-@Mod(VillagerHuts.MODID)
-public class VillagerHuts {
+// The mod's id must match "id" in fabric.mod.json.
+public class VillagerHuts implements ModInitializer {
     public static final String MODID = "villagerhuts";
     public static final Logger LOGGER = LogUtils.getLogger();
 
-    // Runs first when the mod loads. NeoForge passes in the mod event bus and container.
-    public VillagerHuts(IEventBus modEventBus, ModContainer modContainer) {
-        ModItems.ITEMS.register(modEventBus);
-        ModEntities.ENTITY_TYPES.register(modEventBus);
-        ModCreativeTabs.TABS.register(modEventBus);
+    // Runs first when the mod loads (on both sides).
+    @Override
+    public void onInitialize() {
+        ModItems.register();
+        ModEntities.register();
+        ModCreativeTabs.register();
+        // Every living entity needs base stats (health, speed, ...) registered here.
+        FabricDefaultAttributeRegistry.register(ModEntities.WORKER, WorkerEntity.createAttributes());
 
-        modEventBus.addListener(VillagerHuts::registerAttributes);
-        VillagerHutsTests.register(modEventBus); // automated tests: dev/test runs only
+        // Forge Config API Port creates and loads config/villagerhuts-common.toml from this spec.
+        ConfigRegistry.INSTANCE.register(MODID, ModConfig.Type.COMMON, Config.SPEC);
 
-        // NeoForge creates and loads the config file from this spec.
-        modContainer.registerConfig(ModConfig.Type.LOCAL, Config.SPEC);
-    }
-
-    // Every living entity needs base stats (health, speed, ...) registered here.
-    private static void registerAttributes(EntityAttributeCreationEvent event) {
-        event.put(ModEntities.WORKER.get(), WorkerEntity.createAttributes().build());
+        ModNetwork.register();
+        WorkerAssigning.register();
+        WorkerCombat.register();
+        WorkerHunting.register();
+        CompatCheck.register();
     }
 }

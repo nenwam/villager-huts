@@ -38,7 +38,7 @@ public class Config {
             .define("protectWorkers", true);
 
     public static final ModConfigSpec.BooleanValue SHARE_WITH_TEAM = BUILDER
-            .comment("With FTB Teams installed: everyone in a party can use each other's workers, as if they were shared with them")
+            .comment("Everyone in a party can use each other's workers, as if they were shared with them (needs a party mod; none is hooked up on Fabric yet)")
             .define("shareWithTeam", true);
 
     public static final ModConfigSpec.BooleanValue NOTIFY_OWNERS = BUILDER

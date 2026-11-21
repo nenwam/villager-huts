@@ -24,6 +24,8 @@ public final class ModTags {
     public static final TagKey<Item> RANGER_WEAPONS = item("ranger_weapons");
     /** Seeds a farmer will plant (default: the same ones vanilla farmer villagers plant). */
     public static final TagKey<Item> FARMER_SEEDS = item("farmer_seeds");
+    /** Farmland of any kind (the c: convention tag; vanilla farmland is a FarmlandBlock anyway). */
+    public static final TagKey<Block> VILLAGER_FARMLANDS = TagKey.create(Registries.BLOCK, Identifier.fromNamespaceAndPath("c", "villager_farmlands"));
     /**
      * Blocks workers put their harvest into (default: chests and barrels, Storage Drawers' drawers and Tom's Simple Storage's
      * inventory connector and interface). They need item storage too (see entity/WorkerStorage).
@@ -33,7 +35,7 @@ public final class ModTags {
     public static final TagKey<Block> WORKER_BEDS = block("worker_beds");
     /** Mobs fighters treat as friends, like villagers: never fought or hurt (default: Guard Villagers' guards). */
     public static final TagKey<EntityType<?>> FRIENDS = TagKey.create(Registries.ENTITY_TYPE,
-            ResourceLocation.fromNamespaceAndPath(VillagerHuts.MODID, "friends"));
+            Identifier.fromNamespaceAndPath(VillagerHuts.MODID, "friends"));
 
     private static TagKey<Item> item(String name) {
         return TagKey.create(Registries.ITEM, Identifier.fromNamespaceAndPath(VillagerHuts.MODID, name));

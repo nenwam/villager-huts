@@ -4,7 +4,6 @@ import io.github.nenwam.villagerhuts.entity.WorkerEntity;
 import io.github.nenwam.villagerhuts.entity.WorkerStorage;
 import io.github.nenwam.villagerhuts.job.Weapons;
 import net.minecraft.network.chat.Component;
-import net.neoforged.neoforge.items.IItemHandler;
 
 /**
  * Fighters: hurt, with no food on them? Walk to the chest and take some (see Weapons.isPlainFood: bread, cooked
@@ -31,12 +30,12 @@ public class FetchFoodGoal extends StorageTripGoal {
     }
 
     @Override
-    protected boolean isUseful(IItemHandler storage) {
-        return WorkerStorage.has(storage, Weapons::isPlainFood);
+    protected boolean isUseful(WorkerStorage storage) {
+        return storage.has(Weapons::isPlainFood);
     }
 
     @Override
-    protected int useStorage(IItemHandler storage) {
+    protected int useStorage(WorkerStorage storage) {
         return this.take(storage, Weapons::isPlainFood, MAX_FOOD) > 0 ? 20 : CHECK_TICKS;
     }
 

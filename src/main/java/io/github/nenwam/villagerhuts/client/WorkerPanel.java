@@ -5,12 +5,15 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
-import io.github.nenwam.villagerhuts.VillagerHuts;
 import io.github.nenwam.villagerhuts.entity.WorkerEntity;
 import io.github.nenwam.villagerhuts.job.WorkerJob;
 import io.github.nenwam.villagerhuts.network.RenameWorkerPayload;
 import io.github.nenwam.villagerhuts.network.WorkerCommandPayload;
 import io.github.nenwam.villagerhuts.network.WorkerInfo;
+import net.fabricmc.fabric.api.client.screen.v1.ScreenEvents;
+import net.fabricmc.fabric.api.client.screen.v1.ScreenKeyboardEvents;
+import net.fabricmc.fabric.api.client.screen.v1.ScreenMouseEvents;
+import net.fabricmc.fabric.api.client.screen.v1.Screens;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
@@ -32,10 +35,6 @@ import net.minecraft.util.FormattedCharSequence;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
-import net.neoforged.api.distmarker.Dist;
-import net.neoforged.bus.api.SubscribeEvent;
-import net.neoforged.fml.common.EventBusSubscriber;
-import net.neoforged.neoforge.client.event.ScreenEvent;
 import org.jspecify.annotations.Nullable;
 
 /**
@@ -54,7 +53,6 @@ import org.jspecify.annotations.Nullable;
  *  - the player-head button opens its sharing page (see WorkerSharing); the back arrow returns to the details.
  * When the server turns a button down (or reports what it did), a notice shows at the bottom of the panel for a few seconds.
  */
-@EventBusSubscriber(modid = VillagerHuts.MODID, value = Dist.CLIENT)
 public final class WorkerPanel {
     private static final int MAX_WIDTH = 200;
     private static final int MIN_WIDTH = 140;
@@ -118,11 +116,16 @@ public final class WorkerPanel {
         setOpen(!open);
     }
 
-    @SubscribeEvent
-    static void onInit(ScreenEvent.Init.Post event) {
-        if (!(event.getScreen() instanceof InventoryScreen screen)) {
-            return;
-        }
+    /** Hooks the panel into the inventory screen (from VillagerHutsClient). */
+    public static void register() {
+        ScreenEvents.AFTER_INIT.register((minecraft, screen, width, height) -> {
+            if (screen instanceof InventoryScreen inventory) {
+                init(inventory);
+            }
+        });
+    }
+
+    private static void init(InventoryScreen screen) {
         WorkerList list = new WorkerList(Minecraft.getInstance());
         Button showAll = new SlotToggle(button -> ClientWorkers.toggleShowAll(), ClientWorkers::isShowingAll, () -> SHOW_ALL_COLOR,
                 Component.translatable("gui.villagerhuts.panel.show_all"), Component.translatable("gui.villagerhuts.panel.hide_all"));
@@ -167,21 +170,21 @@ public final class WorkerPanel {
                 button -> sharingPage = true);
         WorkerSharing sharingList = new WorkerSharing(Minecraft.getInstance());
         PanelArea area = new PanelArea();
-        event.addListener(list);
-        event.addListener(showAll);
-        orderAll.forEach(event::addListener);
-        event.addListener(details);
-        event.addListener(back);
-        event.addListener(rename);
-        event.addListener(nameBox);
-        event.addListener(detailToggle);
-        orders.forEach(event::addListener);
-        event.addListener(field);
-        event.addListener(locate);
-        event.addListener(takeTool);
-        event.addListener(sharing);
-        event.addListener(sharingList);
-        event.addListener(area); // last: only gets clicks the list and buttons didn't use
+        Screens.getWidgets(screen).add(list);
+        Screens.getWidgets(screen).add(showAll);
+        Screens.getWidgets(screen).addAll(orderAll);
+        Screens.getWidgets(screen).add(details);
+        Screens.getWidgets(screen).add(back);
+        Screens.getWidgets(screen).add(rename);
+        Screens.getWidgets(screen).add(nameBox);
+        Screens.getWidgets(screen).add(detailToggle);
+        Screens.getWidgets(screen).addAll(orders);
+        Screens.getWidgets(screen).add(field);
+        Screens.getWidgets(screen).add(locate);
+        Screens.getWidgets(screen).add(takeTool);
+        Screens.getWidgets(screen).add(sharing);
+        Screens.getWidgets(screen).add(sharingList);
+        Screens.getWidgets(screen).add(area); // last: only gets clicks the list and buttons didn't use
         Widgets widgets = new Widgets(screen, list, showAll, orderAll, details, back, rename, nameBox, detailToggle, orders, field, locate,
                 takeTool, sharing, sharingList, area);
         current = widgets;
@@ -199,24 +202,27 @@ public final class WorkerPanel {
         if (open) {
             ClientWorkers.request();
         }
+        // This screen's own hooks (Fabric resets them whenever the screen is set up again, e.g. on a resize).
+        ScreenEvents.beforeExtract(screen).register((s, graphics, mouseX, mouseY, partialTick) -> layout(widgets)); // follows the inventory
+        ScreenEvents.afterBackground(screen).register((s, graphics, mouseX, mouseY, partialTick) -> drawBackground(widgets, graphics));
+        ScreenEvents.afterExtract(screen).register((s, graphics, mouseX, mouseY, partialTick) -> drawNotice(widgets, graphics));
+        ScreenMouseEvents.allowMouseRelease(screen).register((s, mouse) -> !releaseOverPanel(widgets, mouse));
+        ScreenMouseEvents.allowMouseScroll(screen).register((s, mouseX, mouseY, scrollX, scrollY) -> !scrollPanel(widgets, mouseX, mouseY, scrollX, scrollY));
+        ScreenKeyboardEvents.allowKeyPress(screen).register((s, key) -> !keyForNameBox(widgets, key));
+        ScreenEvents.remove(screen).register(s -> {
+            if (current == widgets) {
+                current = null;
+                renaming = null;
+                ClientWorkers.setListener(null);
+            }
+        });
     }
 
-    // Re-place every frame: follows the inventory when the recipe book opens or the window resizes.
-    @SubscribeEvent
-    static void onRender(ScreenEvent.Render.Pre event) {
-        Widgets widgets = current;
-        if (widgets != null && event.getScreen() == widgets.screen()) {
-            layout(widgets);
-        }
-    }
-
-    @SubscribeEvent
-    static void onRenderBackground(ScreenEvent.Render.Background event) {
-        Widgets widgets = current;
-        if (!open || widgets == null || event.getScreen() != widgets.screen()) {
+    // Drawn between the inventory's background and its widgets (and the worker panel's), so they go on top.
+    private static void drawBackground(Widgets widgets, GuiGraphicsExtractor graphics) {
+        if (!open || current != widgets) {
             return;
         }
-        GuiGraphicsExtractor graphics = event.getGuiGraphics();
         Font font = Minecraft.getInstance().font;
         ScreenRectangle panel = widgets.area().getRectangle();
         NativeStyle.panel(graphics, panel.left(), panel.top(), panel.width(), panel.height());
@@ -248,40 +254,32 @@ public final class WorkerPanel {
     }
 
     // The latest notice (why a button did nothing, or what it did), in a box at the bottom of the panel, over everything.
-    @SubscribeEvent
-    static void onRenderNotice(ScreenEvent.Render.Post event) {
-        Widgets widgets = current;
+    private static void drawNotice(Widgets widgets, GuiGraphicsExtractor graphics) {
         Component notice = ClientWorkers.notice();
-        if (!open || widgets == null || notice == null || event.getScreen() != widgets.screen()) {
+        if (!open || current != widgets || notice == null) {
             return;
         }
-        GuiGraphics graphics = event.getGuiGraphics();
         Font font = Minecraft.getInstance().font;
         ScreenRectangle panel = widgets.area().getRectangle();
         List<FormattedCharSequence> lines = font.split(notice, panel.width() - 2 * PADDING - 6);
         lines = lines.subList(0, Math.min(3, lines.size()));
         int boxTop = panel.bottom() - PADDING - lines.size() * NativeStyle.LINE - 6;
-        graphics.pose().pushPose();
-        graphics.pose().translate(0, 0, 400); // in front of item icons, like a tooltip
+        graphics.nextStratum(); // in front of item icons, like a tooltip
         graphics.fill(panel.left() + PADDING - 1, boxTop - 1, panel.right() - PADDING + 1, panel.bottom() - PADDING + 1, NOTICE_BORDER);
         graphics.fill(panel.left() + PADDING, boxTop, panel.right() - PADDING, panel.bottom() - PADDING, NOTICE_FILL);
         int y = boxTop + 3;
         for (FormattedCharSequence line : lines) {
-            graphics.drawString(font, line, panel.left() + PADDING + 3, y, NOTICE_TEXT, false);
+            graphics.text(font, line, panel.left() + PADDING + 3, y, NOTICE_TEXT, false);
             y += NativeStyle.LINE;
         }
-        graphics.pose().popPose();
     }
 
     // Holding an item and releasing the mouse outside the inventory normally drops the item.
     // Over this panel, hand the release to the panel instead.
-    @SubscribeEvent
-    static void onMouseReleased(ScreenEvent.MouseButtonReleased.Pre event) {
-        Widgets widgets = current;
-        if (!open || widgets == null || event.getScreen() != widgets.screen()) {
-            return;
+    private static boolean releaseOverPanel(Widgets widgets, MouseButtonEvent mouse) {
+        if (!open || current != widgets) {
+            return false;
         }
-        MouseButtonEvent mouse = event.getMouseButtonEvent();
         if (widgets.area().isMouseOver(mouse.x(), mouse.y())) {
             widgets.list().mouseReleased(mouse);
             widgets.showAll().mouseReleased(mouse);
@@ -295,38 +293,33 @@ public final class WorkerPanel {
             widgets.sharing().mouseReleased(mouse);
             widgets.sharingList().mouseReleased(mouse);
             widgets.screen().setDragging(false);
-            event.setCanceled(true);
+            return true;
         }
+        return false;
     }
 
     // Inventory screens don't pass the scroll wheel on to their widgets, so give it to the list here.
-    @SubscribeEvent
-    static void onMouseScrolled(ScreenEvent.MouseScrolled.Pre event) {
-        Widgets widgets = current;
-        if (!open || widgets == null || event.getScreen() != widgets.screen()
-                || !widgets.area().isMouseOver(event.getMouseX(), event.getMouseY())) {
-            return;
+    private static boolean scrollPanel(Widgets widgets, double mouseX, double mouseY, double scrollX, double scrollY) {
+        if (!open || current != widgets || !widgets.area().isMouseOver(mouseX, mouseY)) {
+            return false;
         }
         if (widgets.list().visible) {
-            widgets.list().mouseScrolled(event.getMouseX(), event.getMouseY(), event.getScrollDeltaX(), event.getScrollDeltaY());
+            widgets.list().mouseScrolled(mouseX, mouseY, scrollX, scrollY);
         } else if (widgets.sharingList().visible) {
-            widgets.sharingList().mouseScrolled(event.getMouseX(), event.getMouseY(), event.getScrollDeltaX(), event.getScrollDeltaY());
+            widgets.sharingList().mouseScrolled(mouseX, mouseY, scrollX, scrollY);
         } else if (widgets.details().visible) {
-            widgets.details().scrollBy(event.getScrollDeltaY());
+            widgets.details().scrollBy(scrollY);
         }
-        event.setCanceled(true);
+        return true;
     }
 
     // While renaming, every key goes to the name box. Otherwise E (inventory) closes the inventory, Q drops
     // the hovered item, 1-9 swap it with the hotbar, and Escape closes the inventory instead of cancelling.
     // (Typed letters reach the name box by themselves: it has focus.)
-    @SubscribeEvent
-    static void onKeyPressed(ScreenEvent.KeyPressed.Pre event) {
-        Widgets widgets = current;
-        if (renaming == null || widgets == null || event.getScreen() != widgets.screen()) {
-            return;
+    private static boolean keyForNameBox(Widgets widgets, KeyEvent key) {
+        if (renaming == null || current != widgets) {
+            return false;
         }
-        KeyEvent key = event.getKeyEvent();
         if (key.isEscape()) {
             finishRename(widgets, false);
         } else if (key.isConfirmation()) {
@@ -334,17 +327,7 @@ public final class WorkerPanel {
         } else {
             widgets.nameBox().keyPressed(key);
         }
-        event.setCanceled(true);
-    }
-
-    @SubscribeEvent
-    static void onClosing(ScreenEvent.Closing event) {
-        Widgets widgets = current;
-        if (widgets != null && event.getScreen() == widgets.screen()) {
-            current = null;
-            renaming = null;
-            ClientWorkers.setListener(null);
-        }
+        return true;
     }
 
     private static void layout(Widgets widgets) {

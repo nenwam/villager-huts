@@ -4,13 +4,12 @@ import java.util.HashMap;
 import java.util.Map;
 
 import io.github.nenwam.villagerhuts.entity.WorkerEntity;
+import io.github.nenwam.villagerhuts.entity.WorkerStorage;
 import io.github.nenwam.villagerhuts.job.Weapons;
 import net.minecraft.network.chat.Component;
 import net.minecraft.world.SimpleContainer;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
-import net.neoforged.neoforge.items.ItemHandlerHelper;
-import net.neoforged.neoforge.items.IItemHandler;
 
 /**
  * Any job: carry what the worker has to its chest.
@@ -46,12 +45,12 @@ public class DepositItemsGoal extends StorageTripGoal {
     }
 
     @Override
-    protected boolean isUseful(IItemHandler storage) {
+    protected boolean isUseful(WorkerStorage storage) {
         return true;
     }
 
     @Override
-    protected int useStorage(IItemHandler storage) {
+    protected int useStorage(WorkerStorage storage) {
         return this.storeItems(storage, this.worker.isWorkDone()) ? RETRY_TICKS : FULL_RETRY_TICKS;
     }
 
@@ -71,7 +70,7 @@ public class DepositItemsGoal extends StorageTripGoal {
     }
 
     /** Moves everything (or everything but the seeds and bone meal it keeps) into the storage. Returns true if anything was stored. */
-    private boolean storeItems(IItemHandler storage, boolean everything) {
+    private boolean storeItems(WorkerStorage storage, boolean everything) {
         SimpleContainer inventory = this.worker.getInventory();
         Map<Item, Integer> kept = new HashMap<>();
         boolean storedAny = false;
@@ -84,7 +83,7 @@ public class DepositItemsGoal extends StorageTripGoal {
             if (toStore <= 0) {
                 continue;
             }
-            ItemStack rest = ItemHandlerHelper.insertItemStacked(storage, stack.split(toStore), false);
+            ItemStack rest = storage.insert(stack.split(toStore));
             if (rest.getCount() < toStore) {
                 storedAny = true;
             }

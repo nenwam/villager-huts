@@ -7,13 +7,13 @@ import java.util.Set;
 import java.util.UUID;
 
 import io.github.nenwam.villagerhuts.Config;
-import net.neoforged.fml.ModList;
 import org.jspecify.annotations.Nullable;
 
 /**
- * Parties (FTB Teams, when it's installed and the shareWithTeam setting is on): everyone in a party can use each
- * other's workers, as if every worker were shared with them. Only its owner can still take its tool, share it or
- * give it away. Server side only.
+ * Parties (the shareWithTeam setting): everyone in a party can use each other's workers, as if every worker were shared
+ * with them. Only its owner can still take its tool, share it or give it away. Server side only. No party mod is
+ * hooked up on Fabric yet (FTB Teams is NeoForge-only in the Seed to Stars packs), so only the game tests make
+ * parties for now; a party mod plugs in at provider().
  */
 public final class Teams {
     /** A party: its id, and its name as players see it. */
@@ -51,8 +51,7 @@ public final class Teams {
 
     private static Provider provider() {
         if (provider == null) {
-            // FtbTeams only loads (and with it FTB Teams' classes) when FTB Teams is installed.
-            provider = ModList.get().isLoaded("ftbteams") ? FtbTeams::partyOf : player -> Optional.empty();
+            provider = player -> Optional.empty();
         }
         return provider;
     }

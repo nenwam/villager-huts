@@ -1,7 +1,8 @@
 # Sanjay Gupta's Best Workers!
 
-A NeoForge mod for Minecraft 26.3: hire workers, give each one somewhere to work, a chest and a bed, and they get
-on with it. Farmers look after a farm (or make one); fighters, Sikh warriors and rangers, guard a post, or you.
+A Fabric mod for Minecraft 26.3 (Fabric Loader 0.20.1, Fabric API 0.166.2: the Seed to Stars 26.3 pack's versions; the
+`mc-1.21.1` branch is the NeoForge 1.21.1 build for the original pack): hire workers, give each one somewhere to work, a
+chest and a bed, and they get on with it. Farmers look after a farm (or make one); fighters, Sikh warriors and rangers, guard a post, or you.
 Works in multiplayer: workers belong to the player who hired them, who can share them with friends.
 
 ## Commands
@@ -11,10 +12,11 @@ Works in multiplayer: workers belong to the player who hired them, who can share
 | `./gradlew runClient` | Launch Minecraft with the mod loaded |
 | `./gradlew build` | Build the mod jar into `build/libs/` |
 | `./gradlew runClient --debug-jvm` | Launch and wait for a debugger on port 5005 |
-| `./gradlew runData` | Run data generators into `src/generated/resources` |
-| `./gradlew runGameTestServer` | Run the automated in-game tests (fails if any test fails) |
+| `./gradlew runGameTest` | Run the automated in-game tests on a flat dev server (fails if any test fails) |
 
-Requires JDK 25.
+Requires JDK 25. Needs [Fabric API](https://modrinth.com/mod/fabric-api) and
+[Forge Config API Port](https://modrinth.com/mod/forge-config-api-port) (for its settings; both are in the Seed to
+Stars 26.3 pack).
 
 ## How to play
 
@@ -53,9 +55,8 @@ Requires JDK 25.
   A **Diamond Carrot** is a carrot surrounded by eight diamonds; a **Flawless Diamond Carrot** is a carrot
   surrounded by eight diamond blocks. (The 64 a day is the `farmerDailyHarvest` setting; each level adds that
   much again.) Fighters also swing and shoot faster with each level, and rangers' shots go straighter.
-- **Worker panel:** the **Workers** button in the survival inventory opens a panel beside it. It has no key by
-  default (every letter is taken in the Seed to Stars pack); bind **Open Worker Panel** in Options → Controls to open
-  the inventory with the panel, also in creative. It lists all your workers, then the ones shared with you (or your
+- **Worker panel:** the **Workers** button in the survival inventory opens a panel beside it. **Open Worker Panel** (Options → Controls)
+  opens the inventory with the panel, also in creative. (The **J** key does that by default.) It lists all your workers, then the ones shared with you (or your
   party's): live status, days worked, what they're carrying and have collected. The three buttons beside **Show all**
   give all your own workers an order at once: **back to work**, **follow me** or **stay** (the ones near enough to
   hear: it says how many, and how many were too far away). Click a worker's book for its details page
@@ -91,7 +92,7 @@ Requires JDK 25.
   shared with can give it orders and work (**Follow me** follows whoever pressed it), rename and upgrade it, and
   can stop using it (**×** on their own row); only the owner can take its hoe, share it or give it away. Sharing
   works even when the worker is far away, and the other player is told.
-  - **Parties (FTB Teams):** everyone in a party can use each other's workers, as if they were shared with them: no
+  - **Parties:** everyone in a party can use each other's workers, as if they were shared with them: no
     need to share them one by one. The sharing page says so. Only a worker's owner can still take its tool, share it or
     give it away. The `shareWithTeam` setting turns this off.
 - **Fighter:** craft one from a **grindstone**, a **target** and a **golden carrot** (any arrangement); picking up a
@@ -122,26 +123,22 @@ Requires JDK 25.
     health), they go to bed to recover, and heal fast there.
   - **Night watch:** fighters keep watch at their post all night, then sleep in their bed from sunrise until
     noon. Anything coming near wakes them.
-- **Other mods:** farmers also plant Pam's HarvestCraft seeds and Farmer's Delight cabbages and onions, when those mods
-  are installed (normal crops on farmland only: not rice, tomatoes or fruit trees). Workers are tagged
-  `c:capturing_not_supported`, so Carry On (and other mods that pick up mobs) can't carry them off. With **Serene
-  Seasons**, farmers plant only what grows on their farm this season (by Serene Seasons' own rules, greenhouses
-  included): seeds out of season stay in the chest until their season comes round. **EMI** and **JEI** keep their item
-  lists out of the worker panel's way. **FTB Teams** and **Xaero's minimap** are above (parties, the compass). Also:
-  - **Storage:** a worker's chest can be any chest or barrel with item storage (Sophisticated Storage's too), Storage
-    Drawers' drawers and controller, or Tom's Simple Storage's inventory connector and interface (the
-    `villagerhuts:worker_storage` tag).
-  - **Beds:** Comforts' sleeping bags and hammocks work as a worker's bed (the `villagerhuts:worker_beds` tag).
-  - **Weapons and friends:** Farmer's Delight knives make a warrior; fighters treat Guard Villagers' guards as friends
-    (the `villagerhuts:friends` entity tag).
+- **Other mods** (all optional; the Seed to Stars 26.3 pack has them):
+  - **Crops:** farmers also plant Croptopia's crops and Farmer's Delight cabbages and onions (normal crops on farmland
+    only: not rice, tomatoes, saplings or fruit trees), from the `villagerhuts:farmer_seeds` tag.
+  - **Serene Seasons:** farmers plant only what grows on their farm this season (by Serene Seasons' own rules,
+    greenhouses included): seeds out of season stay in the chest until their season comes round.
+  - **Storage:** a worker's chest can be any chest or barrel with item storage (Fabric's transfer API), Storage Drawers'
+    drawers and controller, or Tom's Simple Storage's inventory connector and interface (the `villagerhuts:worker_storage` tag).
+  - **Weapons:** Farmer's Delight knives make a warrior.
+  - **Carry On:** workers are tagged `c:capturing_not_supported`, which Carry On won't pick up.
   - **Jade:** looking at a worker shows its job and level, its owner, and what it's doing.
-  - **Ad Astra:** workers breathe like any other mob: on a planet without air they need an oxygen distributor's sealed
-    area, and they get hurt where it's too hot or too cold. A worker in danger says so (its status) and tells you
-    straight away; giving one a place to work, a chest or a bed where it couldn't live (or hiring one there) warns you.
+  - **JEI:** keeps its item list out of the worker panel's way.
+  - **Xaero's minimap:** the compass button adds a waypoint for the worker.
+  - The NeoForge 1.21.1 build's other integrations (FTB Teams parties, Ad Astra, EMI, Comforts beds, Guard Villagers) wait
+    for those mods on Fabric; their tags are already here (`worker_beds`, `friends`), and parties have the setting.
   - **Advancements:** their own tab (hire a farmer, hire a fighter, an upgrade, a Master), which quest mods can use
     as tasks (`villagerhuts:workers/...`).
-  - **Production counters:** what a worker harvests drops the way any broken block's does (NeoForge's block drops
-    event), so mods that count production (like the Seed to Stars Colony Ledger) count it.
   When the server starts, its log says which of these are switched on.
 - **Seeds and bone meal:** farmers start with no seeds. Put seeds (wheat seeds, carrots, potatoes, beetroot
   seeds...) in their chest; the farmer fetches them and plants the empty farmland. Put bone meal in the chest
@@ -172,11 +169,13 @@ bodyguards, levels, never hurting friends, keeping watch at night and sleeping i
 own),
 the daily harvest limit and the next day, resting by the bed, sleeping in it at night (in a batch of its own that
 runs at midnight), and the worker panel's messages surviving the trip over the network. Run them after changes with
-`./gradlew runGameTestServer`. They're only registered in development, never in a normal game.
+`./gradlew runGameTest`. They're a small mod of their own (`villagerhuts_tests`, in `src/gametest`), only in
+development: never in the released jar. Fabric API has no test runner for 26.3, so `GameTestRun` runs them (vanilla's
+test framework) when the dev server starts, then stops it.
 
 ## Tools
 
 `tools/make_icons.py` draws the item icons, `tools/make_worker_looks.py` draws the workers' looks, and
 `tools/make_test_platform.py` builds the platform the tests run on.
 
-Started from the NeoForge MDK (see `TEMPLATE_LICENSE.txt`).
+Started from the NeoForge MDK (see `TEMPLATE_LICENSE.txt`); ported to Fabric for the Seed to Stars 26.3 pack.

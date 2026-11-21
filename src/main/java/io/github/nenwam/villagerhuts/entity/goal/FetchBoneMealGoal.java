@@ -4,7 +4,6 @@ import io.github.nenwam.villagerhuts.entity.WorkerEntity;
 import io.github.nenwam.villagerhuts.entity.WorkerStorage;
 import io.github.nenwam.villagerhuts.job.WorkerJob;
 import net.minecraft.network.chat.Component;
-import net.neoforged.neoforge.items.IItemHandler;
 
 /**
  * Farmer: crops growing on its farm, no bone meal on it, and some in its chest? Walk over and take some
@@ -34,12 +33,12 @@ public class FetchBoneMealGoal extends StorageTripGoal {
     }
 
     @Override
-    protected boolean isUseful(IItemHandler storage) {
-        return WorkerStorage.has(storage, WorkerEntity::isBoneMeal);
+    protected boolean isUseful(WorkerStorage storage) {
+        return storage.has(WorkerEntity::isBoneMeal);
     }
 
     @Override
-    protected int useStorage(IItemHandler storage) {
+    protected int useStorage(WorkerStorage storage) {
         return this.take(storage, WorkerEntity::isBoneMeal, MAX_BONE_MEAL) > 0 ? 20 : CHECK_TICKS;
     }
 

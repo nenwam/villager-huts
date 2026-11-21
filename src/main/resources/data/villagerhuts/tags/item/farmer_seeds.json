@@ -1,3 +1,245 @@
 {
-  "values": ["#minecraft:villager_plantable_seeds"]
+  "values": [
+    "#minecraft:villager_plantable_seeds",
+    {
+      "id": "farmersdelight:cabbage_seeds",
+      "required": false
+    },
+    {
+      "id": "farmersdelight:onion",
+      "required": false
+    },
+    {
+      "id": "#c:seeds/artichoke",
+      "required": false
+    },
+    {
+      "id": "#c:seeds/asparagus",
+      "required": false
+    },
+    {
+      "id": "#c:seeds/barley",
+      "required": false
+    },
+    {
+      "id": "#c:seeds/basil",
+      "required": false
+    },
+    {
+      "id": "#c:seeds/bellpepper",
+      "required": false
+    },
+    {
+      "id": "#c:seeds/blackbean",
+      "required": false
+    },
+    {
+      "id": "#c:seeds/blackberry",
+      "required": false
+    },
+    {
+      "id": "#c:seeds/blueberry",
+      "required": false
+    },
+    {
+      "id": "#c:seeds/broccoli",
+      "required": false
+    },
+    {
+      "id": "#c:seeds/cabbage",
+      "required": false
+    },
+    {
+      "id": "#c:seeds/cantaloupe",
+      "required": false
+    },
+    {
+      "id": "#c:seeds/cauliflower",
+      "required": false
+    },
+    {
+      "id": "#c:seeds/celery",
+      "required": false
+    },
+    {
+      "id": "#c:seeds/chilepepper",
+      "required": false
+    },
+    {
+      "id": "#c:seeds/coffee_beans",
+      "required": false
+    },
+    {
+      "id": "#c:seeds/corn",
+      "required": false
+    },
+    {
+      "id": "#c:seeds/cranberry",
+      "required": false
+    },
+    {
+      "id": "#c:seeds/cucumber",
+      "required": false
+    },
+    {
+      "id": "#c:seeds/currant",
+      "required": false
+    },
+    {
+      "id": "#c:seeds/eggplant",
+      "required": false
+    },
+    {
+      "id": "#c:seeds/elderberry",
+      "required": false
+    },
+    {
+      "id": "#c:seeds/garlic",
+      "required": false
+    },
+    {
+      "id": "#c:seeds/ginger",
+      "required": false
+    },
+    {
+      "id": "#c:seeds/grape",
+      "required": false
+    },
+    {
+      "id": "#c:seeds/greenbean",
+      "required": false
+    },
+    {
+      "id": "#c:seeds/greenonion",
+      "required": false
+    },
+    {
+      "id": "#c:seeds/honeydew",
+      "required": false
+    },
+    {
+      "id": "#c:seeds/hops",
+      "required": false
+    },
+    {
+      "id": "#c:seeds/kale",
+      "required": false
+    },
+    {
+      "id": "#c:seeds/kiwi",
+      "required": false
+    },
+    {
+      "id": "#c:seeds/leek",
+      "required": false
+    },
+    {
+      "id": "#c:seeds/lettuce",
+      "required": false
+    },
+    {
+      "id": "#c:seeds/mustard",
+      "required": false
+    },
+    {
+      "id": "#c:seeds/oat",
+      "required": false
+    },
+    {
+      "id": "#c:seeds/olive",
+      "required": false
+    },
+    {
+      "id": "#c:seeds/onion",
+      "required": false
+    },
+    {
+      "id": "#c:seeds/peanut",
+      "required": false
+    },
+    {
+      "id": "#c:seeds/pepper",
+      "required": false
+    },
+    {
+      "id": "#c:seeds/pineapple",
+      "required": false
+    },
+    {
+      "id": "#c:seeds/radish",
+      "required": false
+    },
+    {
+      "id": "#c:seeds/raspberry",
+      "required": false
+    },
+    {
+      "id": "#c:seeds/rhubarb",
+      "required": false
+    },
+    {
+      "id": "#c:seeds/rice",
+      "required": false
+    },
+    {
+      "id": "#c:seeds/rutabaga",
+      "required": false
+    },
+    {
+      "id": "#c:seeds/saguaro",
+      "required": false
+    },
+    {
+      "id": "#c:seeds/soybean",
+      "required": false
+    },
+    {
+      "id": "#c:seeds/spinach",
+      "required": false
+    },
+    {
+      "id": "#c:seeds/squash",
+      "required": false
+    },
+    {
+      "id": "#c:seeds/strawberry",
+      "required": false
+    },
+    {
+      "id": "#c:seeds/sweetpotato",
+      "required": false
+    },
+    {
+      "id": "#c:seeds/tea_leaves",
+      "required": false
+    },
+    {
+      "id": "#c:seeds/tomatillo",
+      "required": false
+    },
+    {
+      "id": "#c:seeds/tomato",
+      "required": false
+    },
+    {
+      "id": "#c:seeds/turmeric",
+      "required": false
+    },
+    {
+      "id": "#c:seeds/turnip",
+      "required": false
+    },
+    {
+      "id": "#c:seeds/vanilla",
+      "required": false
+    },
+    {
+      "id": "#c:seeds/yam",
+      "required": false
+    },
+    {
+      "id": "#c:seeds/zucchini",
+      "required": false
+    }
+  ]
 }

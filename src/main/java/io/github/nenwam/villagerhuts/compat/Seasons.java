@@ -14,7 +14,7 @@ import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.levelgen.structure.BoundingBox;
-import net.neoforged.fml.ModList;
+import net.fabricmc.loader.api.FabricLoader;
 import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 
@@ -65,7 +65,7 @@ public final class Seasons {
     private static @Nullable MethodHandle fertilityCheck() {
         if (!looked) {
             looked = true;
-            if (ModList.get().isLoaded("sereneseasons")) {
+            if (FabricLoader.getInstance().isModLoaded("sereneseasons")) {
                 try {
                     Class<?> fertility = Class.forName("sereneseasons.init.ModFertility", true, Seasons.class.getClassLoader());
                     isCropFertile = MethodHandles.publicLookup().findStatic(fertility, "isCropFertile",

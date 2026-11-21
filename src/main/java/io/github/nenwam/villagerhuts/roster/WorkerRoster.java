@@ -133,7 +133,7 @@ public final class WorkerRoster extends SavedData {
             .xmap(WorkerRoster::new, roster -> roster.entries);
 
     public static final SavedDataType<WorkerRoster> TYPE = new SavedDataType<>(
-            Identifier.fromNamespaceAndPath(VillagerHuts.MODID, "workers"), WorkerRoster::new, CODEC);
+            Identifier.fromNamespaceAndPath(VillagerHuts.MODID, "workers"), WorkerRoster::new, CODEC, null); // mod data: no data fixer (Fabric allows null)
 
     private final Map<UUID, Entry> entries;
 

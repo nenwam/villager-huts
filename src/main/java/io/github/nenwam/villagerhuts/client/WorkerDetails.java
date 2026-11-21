@@ -83,7 +83,7 @@ final class WorkerDetails extends AbstractWidget {
         if (!info.tool().isEmpty()) {
             return info.tool();
         }
-        return new ItemStack(WorkerJob.byId(info.job()).isFighter() ? ModItems.FIGHTER.get() : ModItems.FARMER.get());
+        return new ItemStack(WorkerJob.byId(info.job()).isFighter() ? ModItems.FIGHTER : ModItems.FARMER);
     }
 
     /** Its name, or its job if it has none. */

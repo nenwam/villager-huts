@@ -10,7 +10,7 @@ import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.ProjectileWeaponItem;
 import net.minecraft.world.item.TridentItem;
 import net.minecraft.world.item.component.Consumable;
-import net.neoforged.neoforge.common.Tags;
+import net.fabricmc.fabric.api.tag.convention.v2.ConventionalItemTags;
 
 /**
  * Which items are weapons, and of which kind, for fighters: any melee weapon makes a warrior, any ranged one a ranger.
@@ -41,7 +41,7 @@ public final class Weapons {
 
     /** Pickaxes, shovels and hoes hit things too (they have the weapon component), but they aren't weapons. */
     private static boolean isDiggingTool(ItemStack stack) {
-        return stack.is(Tags.Items.MINING_TOOL_TOOLS) || stack.is(ItemTags.PICKAXES) || stack.is(ItemTags.SHOVELS)
+        return stack.is(ConventionalItemTags.MINING_TOOL_TOOLS) || stack.is(ItemTags.PICKAXES) || stack.is(ItemTags.SHOVELS)
                 || stack.is(ItemTags.HOES) || stack.is(ModTags.FARMER_TOOLS);
     }
 
@@ -63,7 +63,7 @@ public final class Weapons {
             return stack -> false;
         }
         if (weapon.getItem() instanceof ProjectileWeaponItem projectileWeapon) {
-            return projectileWeapon.getAllSupportedProjectiles(weapon);
+            return projectileWeapon.getAllSupportedProjectiles();
         }
         return ProjectileWeaponItem.ARROW_ONLY;
     }

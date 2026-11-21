@@ -4,12 +4,12 @@ import java.util.ArrayList;
 import java.util.List;
 
 import io.github.nenwam.villagerhuts.entity.WorkerAssigning;
+import io.github.nenwam.villagerhuts.registry.ModTags;
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.level.BlockGetter;
 import net.minecraft.world.level.block.FarmlandBlock;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.levelgen.structure.BoundingBox;
-import net.neoforged.neoforge.common.Tags;
 import org.jspecify.annotations.Nullable;
 
 /**
@@ -59,6 +59,6 @@ public record FarmArea(BoundingBox window, List<BlockPos> farmland, @Nullable Bo
     }
 
     public static boolean isFarmland(BlockState state) {
-        return state.getBlock() instanceof FarmlandBlock || state.is(Tags.Blocks.VILLAGER_FARMLANDS);
+        return state.getBlock() instanceof FarmlandBlock || state.is(ModTags.VILLAGER_FARMLANDS);
     }
 }

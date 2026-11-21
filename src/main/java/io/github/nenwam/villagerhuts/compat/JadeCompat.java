@@ -5,8 +5,11 @@ import io.github.nenwam.villagerhuts.entity.WorkerEntity;
 import io.github.nenwam.villagerhuts.roster.WorkerRoster;
 import net.minecraft.ChatFormatting;
 import net.minecraft.nbt.CompoundTag;
+import net.minecraft.nbt.NbtOps;
+import net.minecraft.nbt.Tag;
 import net.minecraft.network.chat.Component;
-import net.minecraft.resources.ResourceLocation;
+import net.minecraft.network.chat.ComponentSerialization;
+import net.minecraft.resources.Identifier;
 import net.minecraft.server.level.ServerLevel;
 import snownee.jade.api.EntityAccessor;
 import snownee.jade.api.IEntityComponentProvider;
@@ -19,12 +22,12 @@ import snownee.jade.api.WailaPlugin;
 import snownee.jade.api.config.IPluginConfig;
 
 /**
- * Jade (when it's installed; Jade finds this itself): looking at a worker shows its job and level, its owner, and what
+ * Jade (when it's installed; Jade finds this through the "jade" entrypoint in fabric.mod.json): looking at a worker shows its job and level, its owner, and what
  * it's doing, under its name. The server sends the owner and status (only it knows them).
  */
 @WailaPlugin
 public class JadeCompat implements IWailaPlugin {
-    static final ResourceLocation WORKER = ResourceLocation.fromNamespaceAndPath(VillagerHuts.MODID, "worker");
+    static final Identifier WORKER = Identifier.fromNamespaceAndPath(VillagerHuts.MODID, "worker");
 
     @Override
     public void register(IWailaCommonRegistration registration) {
@@ -49,11 +52,12 @@ public class JadeCompat implements IWailaPlugin {
             if (worker.getOwnerId() != null) {
                 data.putString("owner", WorkerRoster.playerName(level.getServer(), worker.getOwnerId()).getString());
             }
-            data.putString("status", Component.Serializer.toJson(worker.currentStatus(), level.registryAccess()));
+            ComponentSerialization.CODEC.encodeStart(level.registryAccess().createSerializationContext(NbtOps.INSTANCE), worker.currentStatus())
+                    .result().ifPresent(status -> data.put("status", status));
         }
 
         @Override
-        public ResourceLocation getUid() {
+        public Identifier getUid() {
             return WORKER;
         }
     }
@@ -69,20 +73,19 @@ public class JadeCompat implements IWailaPlugin {
             }
             CompoundTag data = accessor.getServerData();
             Component job = worker.getJob().displayName();
-            tooltip.add(data.contains("rank") ? Component.translatable("jade.villagerhuts.job_level", job, WorkerEntity.rankName(data.getInt("rank"))) : job);
-            if (data.contains("owner")) {
-                tooltip.add(Component.translatable("jade.villagerhuts.owner", data.getString("owner")).withStyle(ChatFormatting.GRAY));
-            }
-            if (data.contains("status")) {
-                Component status = Component.Serializer.fromJson(data.getString("status"), accessor.getLevel().registryAccess());
-                if (status != null) {
-                    tooltip.add(status.copy().withStyle(ChatFormatting.GRAY));
-                }
+            tooltip.add(data.getInt("rank").<Component>map(rank -> Component.translatable("jade.villagerhuts.job_level", job, WorkerEntity.rankName(rank)))
+                    .orElse(job));
+            data.getString("owner").ifPresent(owner ->
+                    tooltip.add(Component.translatable("jade.villagerhuts.owner", owner).withStyle(ChatFormatting.GRAY)));
+            Tag status = data.get("status");
+            if (status != null) {
+                ComponentSerialization.CODEC.parse(accessor.getLevel().registryAccess().createSerializationContext(NbtOps.INSTANCE), status).result()
+                        .ifPresent(text -> tooltip.add(text.copy().withStyle(ChatFormatting.GRAY)));
             }
         }
 
         @Override
-        public ResourceLocation getUid() {
+        public Identifier getUid() {
             return WORKER;
         }
     }

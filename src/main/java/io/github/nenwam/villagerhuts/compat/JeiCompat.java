@@ -10,15 +10,15 @@ import mezz.jei.api.gui.handlers.IGuiContainerHandler;
 import mezz.jei.api.registration.IGuiHandlerRegistration;
 import net.minecraft.client.gui.screens.inventory.InventoryScreen;
 import net.minecraft.client.renderer.Rect2i;
-import net.minecraft.resources.ResourceLocation;
+import net.minecraft.resources.Identifier;
 
-/** JEI (when it's installed; JEI finds this itself): keeps its item list out of the worker panel beside the inventory. */
+/** JEI (when it's installed; JEI finds this through the "jei_mod_plugin" entrypoint in fabric.mod.json): keeps its item list out of the worker panel beside the inventory. */
 @JeiPlugin
 public class JeiCompat implements IModPlugin {
-    private static final ResourceLocation ID = ResourceLocation.fromNamespaceAndPath(VillagerHuts.MODID, "worker_panel");
+    private static final Identifier ID = Identifier.fromNamespaceAndPath(VillagerHuts.MODID, "worker_panel");
 
     @Override
-    public ResourceLocation getPluginUid() {
+    public Identifier getPluginUid() {
         return ID;
     }
 

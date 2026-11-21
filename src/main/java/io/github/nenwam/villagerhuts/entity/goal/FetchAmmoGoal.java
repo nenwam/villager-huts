@@ -4,7 +4,6 @@ import io.github.nenwam.villagerhuts.entity.WorkerEntity;
 import io.github.nenwam.villagerhuts.entity.WorkerStorage;
 import io.github.nenwam.villagerhuts.job.Weapons;
 import net.minecraft.network.chat.Component;
-import net.neoforged.neoforge.items.IItemHandler;
 
 /**
  * Ranger: running low on ammo (arrows, or fireworks for a crossbow; tipped and spectral arrows count)? Walk to
@@ -32,12 +31,12 @@ public class FetchAmmoGoal extends StorageTripGoal {
     }
 
     @Override
-    protected boolean isUseful(IItemHandler storage) {
-        return WorkerStorage.has(storage, Weapons.ammoFor(this.worker.getMainHandItem()));
+    protected boolean isUseful(WorkerStorage storage) {
+        return storage.has(Weapons.ammoFor(this.worker.getMainHandItem()));
     }
 
     @Override
-    protected int useStorage(IItemHandler storage) {
+    protected int useStorage(WorkerStorage storage) {
         int wanted = MAX_AMMO - this.worker.getAmmoCount();
         return this.take(storage, Weapons.ammoFor(this.worker.getMainHandItem()), wanted) > 0 ? 20 : CHECK_TICKS;
     }

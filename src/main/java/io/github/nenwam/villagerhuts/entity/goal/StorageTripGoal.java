@@ -15,8 +15,6 @@ import net.minecraft.world.entity.ai.goal.Goal;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.pathfinder.Path;
 import net.minecraft.world.phys.Vec3;
-import net.neoforged.neoforge.items.IItemHandler;
-import net.neoforged.neoforge.items.ItemHandlerHelper;
 import org.jspecify.annotations.Nullable;
 
 /**
@@ -46,10 +44,10 @@ abstract class StorageTripGoal extends Goal implements DescribesActivity {
     protected abstract boolean needsTrip();
 
     /** Whether this storage block is worth walking to (e.g. it has seeds in it). */
-    protected abstract boolean isUseful(IItemHandler storage);
+    protected abstract boolean isUseful(WorkerStorage storage);
 
     /** Does the job at the storage block. Returns how many ticks to wait before the next trip. */
-    protected abstract int useStorage(IItemHandler storage);
+    protected abstract int useStorage(WorkerStorage storage);
 
     /** How long to wait before checking again when there's no trip to make (or no way to make it). */
     protected abstract int retryTicks();
@@ -108,7 +106,7 @@ abstract class StorageTripGoal extends Goal implements DescribesActivity {
             return;
         }
 
-        IItemHandler storage = WorkerStorage.at(this.worker.level(), pos);
+        WorkerStorage storage = WorkerStorage.at(this.worker.level(), pos);
         int wait = storage == null ? this.retryTicks() : this.useStorage(storage);
         this.nextTryTick = this.worker.tickCount + wait;
         this.storage = null;
@@ -118,25 +116,8 @@ abstract class StorageTripGoal extends Goal implements DescribesActivity {
      * Moves up to `wanted` matching items from the storage into the worker's pockets (stopping when they're full).
      * Returns how many it took.
      */
-    protected int take(IItemHandler storage, Predicate<ItemStack> matches, int wanted) {
-        int taken = 0;
-        for (int i = 0; i < storage.getSlots() && taken < wanted; i++) {
-            ItemStack stack = storage.getStackInSlot(i);
-            if (!matches.test(stack)) {
-                continue;
-            }
-            ItemStack part = storage.extractItem(i, Math.min(stack.getCount(), wanted - taken), false);
-            int partCount = part.getCount();
-            ItemStack rest = this.worker.getInventory().addItem(part);
-            taken += partCount - rest.getCount();
-            if (!rest.isEmpty()) { // pockets full: put the rest back (anywhere it fits; on the floor if nowhere) and stop
-                ItemStack left = ItemHandlerHelper.insertItemStacked(storage, storage.insertItem(i, rest, false), false);
-                if (!left.isEmpty()) {
-                    this.worker.spawnAtLocation(left);
-                }
-                break;
-            }
-        }
+    protected int take(WorkerStorage storage, Predicate<ItemStack> matches, int wanted) {
+        int taken = storage.take(matches, wanted, this.worker.getInventory());
         if (taken > 0) {
             this.worker.markWorked(); // so it doesn't count as idle and put it straight back
         }
@@ -150,7 +131,7 @@ abstract class StorageTripGoal extends Goal implements DescribesActivity {
         if (storagePos != null && !level.isLoaded(storagePos)) {
             return false; // try again later
         }
-        IItemHandler storage = storagePos != null ? WorkerStorage.at(level, storagePos) : null;
+        WorkerStorage storage = storagePos != null ? WorkerStorage.at(level, storagePos) : null;
         if (storagePos == null || storage == null) { // never assigned, or broken since
             this.worker.setStorageState(WorkerEntity.StorageState.NONE);
             return false;

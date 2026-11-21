@@ -1,0 +1,19 @@
+accessWidener v2 official
+
+# Lets HuntWorkersGoal read how each mob hunts villagers, so it can hunt workers the same way (entity/goal/HuntWorkersGoal.java).
+accessible field net/minecraft/world/entity/ai/goal/target/NearestAttackableTargetGoal targetType Ljava/lang/Class;
+accessible field net/minecraft/world/entity/ai/goal/target/NearestAttackableTargetGoal randomInterval I
+accessible field net/minecraft/world/entity/ai/goal/target/NearestAttackableTargetGoal targetConditions Lnet/minecraft/world/entity/ai/targeting/TargetingConditions;
+accessible field net/minecraft/world/entity/ai/goal/target/TargetGoal mustSee Z
+accessible field net/minecraft/world/entity/ai/goal/target/TargetGoal mustReach Z
+accessible field net/minecraft/world/entity/ai/goal/target/TargetGoal unseenMemoryTicks I
+accessible field net/minecraft/world/entity/ai/targeting/TargetingConditions selector Lnet/minecraft/world/entity/ai/targeting/TargetingConditions$Selector;
+
+# Lets the worker panel find where the inventory is on screen (client/InventoryButton.java, client/WorkerPanel.java).
+accessible field net/minecraft/client/gui/screens/inventory/AbstractContainerScreen leftPos I
+accessible field net/minecraft/client/gui/screens/inventory/AbstractContainerScreen topPos I
+accessible field net/minecraft/client/gui/screens/inventory/AbstractContainerScreen imageWidth I
+accessible field net/minecraft/client/gui/screens/inventory/AbstractContainerScreen imageHeight I
+
+# Lets WorkerHunting give villager-hunting mobs a goal to hunt workers too (entity/WorkerHunting.java).
+accessible field net/minecraft/world/entity/Mob targetSelector Lnet/minecraft/world/entity/ai/goal/GoalSelector;

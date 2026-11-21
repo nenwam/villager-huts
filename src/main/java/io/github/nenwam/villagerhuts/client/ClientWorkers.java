@@ -17,30 +17,25 @@ import io.github.nenwam.villagerhuts.network.ShareWorkerPayload;
 import io.github.nenwam.villagerhuts.network.WorkerCommandPayload;
 import io.github.nenwam.villagerhuts.network.WorkerInfo;
 import io.github.nenwam.villagerhuts.network.WorkerListPayload;
-import net.minecraft.Util;
+import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
+import net.fabricmc.fabric.api.client.keymapping.v1.KeyMappingHelper;
+import net.fabricmc.fabric.api.client.networking.v1.ClientPlayConnectionEvents;
+import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
+import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.client.KeyMapping;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.screens.inventory.InventoryScreen;
 import net.minecraft.resources.Identifier;
 import net.minecraft.network.chat.Component;
-import net.neoforged.api.distmarker.Dist;
-import net.neoforged.bus.api.SubscribeEvent;
-import net.neoforged.fml.ModList;
-import net.neoforged.fml.common.EventBusSubscriber;
-import net.neoforged.neoforge.client.event.ClientPlayerNetworkEvent;
-import net.neoforged.neoforge.client.event.ClientTickEvent;
-import net.neoforged.neoforge.client.event.RegisterKeyMappingsEvent;
-import net.neoforged.neoforge.client.network.ClientPacketDistributor;
-import net.neoforged.neoforge.client.network.event.RegisterClientPayloadHandlersEvent;
+import net.minecraft.util.Util;
 import org.jspecify.annotations.Nullable;
 
 /**
  * The client's copy of your worker list (from the server: your workers, then the ones shared with you or your party),
  * which areas are highlighted, worker colors, the panel's latest notice, and the "open worker management" key.
  */
-@EventBusSubscriber(modid = VillagerHuts.MODID, value = Dist.CLIENT)
 public final class ClientWorkers {
-    public static final KeyMapping.Category KEY_CATEGORY = new KeyMapping.Category(Identifier.fromNamespaceAndPath(VillagerHuts.MODID, "main"));
+    public static final KeyMapping.Category KEY_CATEGORY = KeyMapping.Category.register(Identifier.fromNamespaceAndPath(VillagerHuts.MODID, "main"));
     public static final KeyMapping OPEN_SCREEN_KEY = new KeyMapping("key.villagerhuts.workers", InputConstants.Type.KEYBOARD, InputConstants.KEY_J, KEY_CATEGORY);
 
     // One color per worker number (repeats after 12).
@@ -69,27 +64,27 @@ public final class ClientWorkers {
     }
 
     public static void request() {
-        ClientPacketDistributor.sendToServer(RequestWorkersPayload.INSTANCE);
+        ClientPlayNetworking.send(RequestWorkersPayload.INSTANCE);
     }
 
     /** Asks the server to carry out a worker panel button for one of your workers. It replies with a new list. */
     public static void command(UUID worker, WorkerCommandPayload.Command command) {
-        ClientPacketDistributor.sendToServer(new WorkerCommandPayload(worker, command));
+        ClientPlayNetworking.send(new WorkerCommandPayload(worker, command));
     }
 
     /** Asks the server to rename one of your workers (an empty name removes its name). It replies with a new list. */
     public static void rename(UUID worker, String name) {
-        ClientPacketDistributor.sendToServer(new RenameWorkerPayload(worker, name));
+        ClientPlayNetworking.send(new RenameWorkerPayload(worker, name));
     }
 
     /** Asks the server to share a worker with a player, stop sharing it, or give it to them. It replies with a new list. */
     public static void share(UUID worker, UUID player, ShareWorkerPayload.Action action) {
-        ClientPacketDistributor.sendToServer(new ShareWorkerPayload(worker, player, action));
+        ClientPlayNetworking.send(new ShareWorkerPayload(worker, player, action));
     }
 
     /** Asks the server to give all your own workers this order (WORK, FOLLOW or STAY). It replies with what happened. */
     public static void orderAll(WorkerCommandPayload.Command order) {
-        PacketDistributor.sendToServer(new OrderAllPayload(order));
+        ClientPlayNetworking.send(new OrderAllPayload(order));
     }
 
     /** Asks the server where a worker is (in chat), with a map marker if Xaero's minimap or world map is installed. */
@@ -98,7 +93,7 @@ public final class ClientWorkers {
     }
 
     public static boolean hasXaero() {
-        return ModList.get().isLoaded("xaerominimap") || ModList.get().isLoaded("xaeroworldmap");
+        return FabricLoader.getInstance().isModLoaded("xaerominimap") || FabricLoader.getInstance().isModLoaded("xaeroworldmap");
     }
 
     /** The panel's latest notice (why a button did nothing, or what it did), for a few seconds after it came; else null. */
@@ -153,28 +148,32 @@ public final class ClientWorkers {
 
     // ---------------------------------------------------------------- events
 
-    @SubscribeEvent
-    static void registerPayloadHandler(RegisterClientPayloadHandlersEvent event) {
-        event.register(WorkerListPayload.TYPE, (payload, context) -> {
-            List<WorkerInfo> sorted = new ArrayList<>(payload.workers()); // the server's order: yours first
-            workers = List.copyOf(sorted);
-            // Workers that died (no longer listed) lose their highlight.
-            highlighted.removeIf(id -> sorted.stream().noneMatch(w -> w.id().equals(id)));
-            if (listener != null) {
-                listener.run();
-            }
+    /** Hooks the client's side into the game (from VillagerHutsClient). */
+    public static void register() {
+        KeyMappingHelper.registerKeyMapping(OPEN_SCREEN_KEY);
+        ClientPlayNetworking.registerGlobalReceiver(WorkerListPayload.TYPE, (payload, context) -> receive(payload));
+        ClientPlayNetworking.registerGlobalReceiver(PanelNoticePayload.TYPE, (payload, context) -> receiveNotice(payload));
+        ClientTickEvents.END_CLIENT_TICK.register(ClientWorkers::onClientTick);
+        ClientPlayConnectionEvents.DISCONNECT.register((connection, minecraft) -> {
+            workers = List.of();
+            highlighted.clear();
+            showAll = false;
+            notice = null;
         });
     }
 
-    @SubscribeEvent
-    static void registerKeys(RegisterKeyMappingsEvent event) {
-        event.registerCategory(KEY_CATEGORY);
-        event.register(OPEN_SCREEN_KEY);
+    /** A new list from the server (on the client's main thread), in the server's order: yours first. */
+    static void receive(WorkerListPayload payload) {
+        List<WorkerInfo> sorted = new ArrayList<>(payload.workers());
+        workers = List.copyOf(sorted);
+        // Workers that died (no longer listed) lose their highlight.
+        highlighted.removeIf(id -> sorted.stream().noneMatch(w -> w.id().equals(id)));
+        if (listener != null) {
+            listener.run();
+        }
     }
 
-    @SubscribeEvent
-    static void onClientTick(ClientTickEvent.Post event) {
-        Minecraft minecraft = Minecraft.getInstance();
+    private static void onClientTick(Minecraft minecraft) {
         // The key opens the inventory with the worker panel showing (works in creative too).
         while (OPEN_SCREEN_KEY.consumeClick()) {
             if (minecraft.gui.screen() == null && minecraft.player != null) {
@@ -191,14 +190,6 @@ public final class ClientWorkers {
         if (panelShowing ? ticks % PANEL_REFRESH_TICKS == 0 : anyShown() && ticks % HIGHLIGHT_REFRESH_TICKS == 0) {
             request();
         }
-    }
-
-    @SubscribeEvent
-    static void onLogout(ClientPlayerNetworkEvent.LoggingOut event) {
-        workers = List.of();
-        highlighted.clear();
-        showAll = false;
-        notice = null;
     }
 
     private ClientWorkers() {}

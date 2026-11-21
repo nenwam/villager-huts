@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "id": "villagerhuts_tests",
+  "version": "1",
+  "name": "Sanjay Gupta's Best Workers! (game tests)",
+  "description": "The workers' automated in-game tests. Development only: never shipped.",
+  "environment": "*",
+  "entrypoints": {
+    "main": ["io.github.nenwam.villagerhuts.gametest.VillagerHutsTests"]
+  },
+  "depends": {
+    "villagerhuts": "*"
+  }
+}

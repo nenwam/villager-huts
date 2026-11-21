@@ -45,8 +45,6 @@ import net.minecraft.world.item.ProjectileWeaponItem;
 import net.minecraft.world.item.enchantment.EnchantmentHelper;
 import net.minecraft.world.item.enchantment.Enchantments;
 import net.minecraft.world.phys.AABB;
-import net.neoforged.neoforge.common.CommonHooks;
-import net.neoforged.neoforge.items.IItemHandler;
 import io.github.nenwam.villagerhuts.entity.goal.DepositItemsGoal;
 import io.github.nenwam.villagerhuts.entity.goal.DescribesActivity;
 import io.github.nenwam.villagerhuts.entity.goal.FarmerWorkGoal;
@@ -560,8 +558,8 @@ public class WorkerEntity extends PathfinderMob implements InventoryCarrier, Cro
     /** Whether its chest is there and has something in it that matches. */
     public boolean chestHas(Predicate<ItemStack> wanted) {
         BlockPos pos = this.storagePos;
-        IItemHandler chest = pos == null ? null : WorkerStorage.at(this.level(), pos);
-        return chest != null && WorkerStorage.has(chest, wanted);
+        WorkerStorage chest = pos == null ? null : WorkerStorage.at(this.level(), pos);
+        return chest != null && chest.has(wanted);
     }
 
     // ------------------------------------------------------------------ guard post & guard zone (fighters)
@@ -1018,10 +1016,10 @@ public class WorkerEntity extends PathfinderMob implements InventoryCarrier, Cro
         Predicate<ItemStack> ammo = Weapons.ammoFor(weapon);
         for (ItemStack stack : this.inventory.getItems()) {
             if (ammo.test(stack)) {
-                return CommonHooks.getProjectile(this, weapon, stack);
+                return stack;
             }
         }
-        return CommonHooks.getProjectile(this, weapon, ItemStack.EMPTY);
+        return ItemStack.EMPTY;
     }
 
     // A warrior's blow: the weapon's damage and enchantments count, but the weapon doesn't wear out.
@@ -1075,18 +1073,14 @@ public class WorkerEntity extends PathfinderMob implements InventoryCarrier, Cro
         }
         ItemStack shot = this.useAmmo(level, weapon, ammo);
         AbstractArrow arrow = ProjectileUtil.getMobArrow(this, shot, power, weapon);
-        if (weapon.getItem() instanceof ProjectileWeaponItem projectileWeapon) {
-            arrow = projectileWeapon.customArrow(arrow, shot, weapon);
-        }
         arrow.setBaseDamageFromMob(power + 0.25F * fighterDamageBonus(this.rank)); // half a point more per rank
         aimAndShoot(level, arrow, shot, target, 1.6F);
         this.playSound(SoundEvents.SKELETON_SHOOT, 1.0F, 1.0F / (this.getRandom().nextFloat() * 0.4F + 0.8F));
     }
 
-    // Takes one of the ammo, unless the weapon makes it free (Infinity on a bow, for plain arrows).
+    // Takes one of the ammo, unless the weapon makes it free (Infinity on a bow, for plain arrows: the enchantment decides).
     private ItemStack useAmmo(ServerLevel level, ItemStack weapon, ItemStack ammo) {
-        boolean free = ammo.getItem() instanceof ArrowItem arrowItem && arrowItem.isInfinite(ammo, weapon, this);
-        int used = free ? 0 : EnchantmentHelper.processAmmoUse(level, weapon, ammo, 1);
+        int used = EnchantmentHelper.processAmmoUse(level, weapon, ammo, 1);
         if (used == 0) {
             ItemStack copy = ammo.copyWithCount(1);
             copy.set(DataComponents.INTANGIBLE_PROJECTILE, Unit.INSTANCE); // can't be picked up (it wasn't used up)

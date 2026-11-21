@@ -5,10 +5,13 @@ import java.util.List;
 
 import com.mojang.blaze3d.vertex.PoseStack;
 
-import io.github.nenwam.villagerhuts.VillagerHuts;
 import io.github.nenwam.villagerhuts.entity.WorkerEntity;
 import io.github.nenwam.villagerhuts.network.WorkerInfo;
+import net.fabricmc.fabric.api.client.rendering.v1.level.LevelExtractionContext;
+import net.fabricmc.fabric.api.client.rendering.v1.level.LevelRenderContext;
+import net.fabricmc.fabric.api.client.rendering.v1.level.LevelRenderEvents;
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.renderer.SubmitNodeCollector;
 import net.minecraft.client.renderer.rendertype.RenderTypes;
@@ -23,18 +26,12 @@ import net.minecraft.world.level.levelgen.structure.BoundingBox;
 import net.minecraft.world.phys.Vec3;
 import net.minecraft.world.phys.shapes.Shapes;
 import net.minecraft.world.phys.shapes.VoxelShape;
-import net.neoforged.api.distmarker.Dist;
-import net.neoforged.bus.api.SubscribeEvent;
-import net.neoforged.fml.common.EventBusSubscriber;
-import net.neoforged.neoforge.client.event.ExtractLevelRenderStateEvent;
-import net.neoforged.neoforge.client.event.SubmitCustomGeometryEvent;
 
 /**
  * For each worker whose area is shown (from the worker panel): outlines of its farm, its chest and its bed in
  * the worker's color, its number floating above each, and its number above the worker's head.
  * Numbers face the camera, show through terrain, and grow with distance so they stay readable.
  */
-@EventBusSubscriber(modid = VillagerHuts.MODID, value = Dist.CLIENT)
 public final class WorkerAreaHighlights {
     private static final float AREA_LABEL_HEIGHT = 2.5F;   // blocks above the area's top
     private static final float CHEST_LABEL_HEIGHT = 0.6F;  // blocks above the chest
@@ -51,17 +48,23 @@ public final class WorkerAreaHighlights {
         static final Frame EMPTY = new Frame(List.of(), List.of());
     }
 
-    // Snapshot taken while the frame is being prepared, then drawn (as NeoForge asks).
+    // Snapshot taken while the frame is being prepared (extraction), then drawn (submitting).
     private static volatile Frame frame = Frame.EMPTY;
 
-    @SubscribeEvent
-    static void onExtract(ExtractLevelRenderStateEvent event) {
+    /** Hooks the highlights into level rendering (from VillagerHutsClient). */
+    public static void register() {
+        LevelRenderEvents.END_EXTRACTION.register(WorkerAreaHighlights::extract);
+        LevelRenderEvents.COLLECT_SUBMITS.register(WorkerAreaHighlights::submit);
+    }
+
+    private static void extract(LevelExtractionContext context) {
         if (!ClientWorkers.anyShown()) {
             frame = Frame.EMPTY;
             return;
         }
-        ResourceKey<Level> dimension = event.getLevel().dimension();
-        float partialTick = event.getDeltaTracker().getGameTimeDeltaPartialTick(false);
+        ClientLevel level = context.level();
+        ResourceKey<Level> dimension = level.dimension();
+        float partialTick = context.deltaTracker().getGameTimeDeltaPartialTick(false);
         List<Box> boxes = new ArrayList<>();
         List<Label> labels = new ArrayList<>();
         for (WorkerInfo worker : ClientWorkers.workers()) {
@@ -78,21 +81,21 @@ public final class WorkerAreaHighlights {
                         area.minZ() + area.getZSpan() / 2.0), color, number, AREA_LABEL_SCALE));
             }
             if (worker.storage().isPresent()) {
-                BoundingBox chest = AssignPreview.storageBox(event.getLevel(), worker.storage().get());
+                BoundingBox chest = AssignPreview.storageBox(level, worker.storage().get());
                 boxes.add(new Box(chest, color));
                 labels.add(new Label(new Vec3(chest.minX() + chest.getXSpan() / 2.0, chest.maxY() + 1 + CHEST_LABEL_HEIGHT,
                         chest.minZ() + chest.getZSpan() / 2.0), color, number, HEAD_LABEL_SCALE));
             }
 
             if (worker.bed().isPresent()) {
-                BoundingBox bed = AssignPreview.bedBox(event.getLevel(), worker.bed().get());
+                BoundingBox bed = AssignPreview.bedBox(level, worker.bed().get());
                 boxes.add(new Box(bed, color));
                 labels.add(new Label(new Vec3(bed.minX() + bed.getXSpan() / 2.0, bed.maxY() + 1 + CHEST_LABEL_HEIGHT,
                         bed.minZ() + bed.getZSpan() / 2.0), color, number, HEAD_LABEL_SCALE));
             }
 
             // Above the worker's head (only while it's near enough to be loaded on your side).
-            Entity entity = event.getLevel().getEntity(worker.id());
+            Entity entity = level.getEntity(worker.id());
             if (entity instanceof WorkerEntity && entity.isAlive()) {
                 double above = entity.getBbHeight() + (entity.hasCustomName() ? 0.85 : 0.55); // clear of a name tag
                 labels.add(new Label(entity.getPosition(partialTick).add(0, above, 0), color, number, HEAD_LABEL_SCALE));
@@ -101,16 +104,15 @@ public final class WorkerAreaHighlights {
         frame = new Frame(List.copyOf(boxes), List.copyOf(labels));
     }
 
-    @SubscribeEvent
-    static void onSubmit(SubmitCustomGeometryEvent event) {
+    private static void submit(LevelRenderContext context) {
         Frame current = frame;
         if (current.boxes().isEmpty() && current.labels().isEmpty()) {
             return;
         }
-        CameraRenderState camera = event.getLevelRenderState().cameraRenderState;
+        CameraRenderState camera = context.levelState().cameraRenderState;
         Vec3 cam = camera.pos;
-        PoseStack poseStack = event.getPoseStack();
-        SubmitNodeCollector collector = event.getSubmitNodeCollector();
+        PoseStack poseStack = context.poseStack();
+        SubmitNodeCollector collector = context.submitNodeCollector();
         Font font = Minecraft.getInstance().font;
         float lineWidth = Minecraft.getInstance().getWindow().getAppropriateLineWidth() * 2.0F;
 
